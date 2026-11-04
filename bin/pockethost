@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# PocketHost command-line tool.
+set -euo pipefail
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+PH_HOME="${POCKETHOST_HOME:-$HOME/.pockethost}"
+PIDFILE="$PH_HOME/server.pid"
+LOG="$PH_HOME/logs/server.log"
+mkdir -p "$PH_HOME/logs"
+
+c_bold=$'\e[1m'; c_dim=$'\e[2m'; c_green=$'\e[32m'; c_red=$'\e[31m'; c_yel=$'\e[33m'; c_off=$'\e[0m'
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '%s✓%s %s\n' "$c_green" "$c_off" "$*"; }
+warn() { printf '%s!%s %s\n' "$c_yel" "$c_off" "$*"; }
+fail() { printf '%s✗%s %s\n' "$c_red" "$c_off" "$*"; }
+
+running() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
+
+show_urls() {
+  node "$ROOT/server/cli.js" url | while read -r u; do say "  ${c_bold}$u${c_off}"; done
+}
+
+cmd_start() {
+  if running; then ok "PocketHost is already running."; show_urls; return; fi
+  command -v node >/dev/null || { fail "Node.js is missing. Run: pkg install nodejs-lts"; exit 1; }
+  # Keep the CPU awake while the screen is off (Termux).
+  command -v termux-wake-lock >/dev/null && termux-wake-lock || true
+  rm -f "$PH_HOME/stopping"
+  nohup "$SELF" _watchdog >>"$LOG" 2>&1 </dev/null &
+  echo $! >"$PIDFILE"
+  for _ in $(seq 1 20); do
+    sleep 0.5
+    if grep -q "running on http" <(tail -n 5 "$LOG" 2>/dev/null); then break; fi
+  done
+  if ! running; then fail "PocketHost didn't start. Last log lines:"; tail -n 20 "$LOG"; exit 1; fi
+  ok "PocketHost is running. Open the dashboard from any device on your Wi-Fi:"
+  show_urls
+  if [ -f "$PH_HOME/initial-password" ]; then
+    say ""
+    say "  Password: ${c_bold}$(cat "$PH_HOME/initial-password")${c_off}  ${c_dim}(change it in Settings)${c_off}"
+  fi
+}
+
+# Restarts the server if it ever crashes. Apps keep their own supervisor inside the server.
+cmd__watchdog() {
+  local child=""
+  trap 'touch "$PH_HOME/stopping"; [ -n "$child" ] && kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 0' TERM INT
+  while true; do
+    node "$ROOT/server/index.js" &
+    child=$!
+    wait "$child" || true
+    [ -f "$PH_HOME/stopping" ] && break
+    echo "$(date '+%F %T') PocketHost exited, restarting in 3s…"
+    sleep 3
+  done
+}
+
+cmd_stop() {
+  if ! running; then say "PocketHost isn't running."; rm -f "$PIDFILE"; return; fi
+  local pid; pid="$(cat "$PIDFILE")"
+  touch "$PH_HOME/stopping"
+  kill -TERM "$pid" 2>/dev/null || true
+  for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+  rm -f "$PIDFILE"
+  command -v termux-wake-unlock >/dev/null && termux-wake-unlock || true
+  ok "PocketHost stopped (your apps were stopped too)."
+}
+
+cmd_status() {
+  if running; then ok "Running (pid $(cat "$PIDFILE"))"; show_urls; else warn "Not running. Start it with: pockethost start"; fi
+}
+
+cmd_logs() { tail -n 100 -f "$LOG"; }
+
+cmd_password() {
+  local was=0
+  running && { was=1; cmd_stop >/dev/null; }
+  local pw
+  if [ $# -gt 0 ]; then
+    pw="$(node "$ROOT/server/cli.js" password "$1")"
+    ok "Password changed."
+  else
+    pw="$(node "$ROOT/server/cli.js" password --random)"
+    ok "New password: ${c_bold}$pw${c_off}"
+  fi
+  [ $was = 1 ] && cmd_start >/dev/null && ok "PocketHost restarted."
+  return 0
+}
+
+cmd_port() {
+  [ $# -eq 1 ] || { say "Usage: pockethost port <number>"; exit 1; }
+  node "$ROOT/server/cli.js" port "$1"
+  running && { cmd_stop >/dev/null; cmd_start; }
+}
+
+cmd_update() {
+  if [ ! -d "$ROOT/.git" ]; then fail "This copy wasn't installed with git; re-run the installer to update."; exit 1; fi
+  git -C "$ROOT" pull --ff-only
+  ok "Updated to $(node -p "require('$ROOT/package.json').version")."
+  running && { cmd_stop >/dev/null; cmd_start; }
+}
+
+cmd_doctor() {
+  say "${c_bold}PocketHost doctor${c_off}"
+  if command -v node >/dev/null; then
+    local major; major="$(node -p 'process.versions.node.split(".")[0]')"
+    [ "$major" -ge 18 ] && ok "Node.js $(node -v)" || fail "Node.js $(node -v) is too old (need 18+): pkg install nodejs-lts"
+  else fail "Node.js missing: pkg install nodejs-lts"; fi
+  command -v git >/dev/null && ok "git $(git --version | awk '{print $3}')" || fail "git missing: pkg install git"
+  command -v cloudflared >/dev/null && ok "cloudflared (public URLs)" || warn "cloudflared not installed yet (installed automatically when you turn on a public URL)"
+  running && ok "PocketHost is running" || warn "PocketHost is not running: pockethost start"
+
+  if [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]]; then
+    [ -f "$HOME/.termux/boot/pockethost" ] && ok "Boot script installed" || warn "Boot script missing (re-run the installer)"
+    if command -v termux-battery-status >/dev/null; then ok "Termux:API tools installed"; fi
+    local sdk; sdk="$(getprop ro.build.version.sdk 2>/dev/null || echo 0)"
+    say ""
+    say "${c_bold}Do these once on the phone${c_off} (PocketHost can't check them for you):"
+    say "  • Settings → Apps → Termux → Battery → Unrestricted"
+    say "  • Install the Termux:Boot app (same source as Termux) and open it once, so PocketHost starts after a reboot"
+    if [ "$sdk" -ge 34 ]; then
+      say "  • Developer options → Disable child process restrictions (Android 14+)"
+    elif [ "$sdk" -ge 31 ]; then
+      say "  • Android 12/13 kills apps with many processes. From a computer, run once:"
+      say "    adb shell \"/system/bin/device_config set_sync_disabled_for_tests persistent; /system/bin/device_config put activity_manager max_phantom_processes 2147483647\""
+    fi
+    say "  • Turn on a charge limit (~80%) if the phone stays plugged in"
+    say "  • Reserve a fixed IP for the phone in your router"
+  fi
+}
+
+cmd_uninstall() {
+  say "This removes PocketHost, ${c_bold}all your apps, databases and their data${c_off}."
+  read -r -p "Type 'delete' to continue: " a
+  [ "$a" = "delete" ] || { say "Cancelled."; exit 0; }
+  cmd_stop || true
+  rm -rf "$PH_HOME" "$HOME/.termux/boot/pockethost"
+  [ -n "${PREFIX:-}" ] && rm -f "$PREFIX/bin/pockethost"
+  rm -rf "$ROOT"
+  ok "PocketHost removed."
+}
+
+cmd_help() {
+  cat <<EOF
+${c_bold}PocketHost${c_off} — your phone, your server.
+
+  pockethost start        Start the dashboard and your apps
+  pockethost stop         Stop everything
+  pockethost restart      Restart
+  pockethost status       Is it running? Where's the dashboard?
+  pockethost logs         Follow PocketHost's own log
+  pockethost password     Reset the dashboard password (random, or give one)
+  pockethost port <n>     Change the dashboard port (default 7777)
+  pockethost doctor       Check your setup
+  pockethost update       Update to the latest version
+  pockethost uninstall    Remove PocketHost and all its data
+EOF
+}
+
+case "${1:-help}" in
+  start) cmd_start ;;
+  stop) cmd_stop ;;
+  restart) cmd_stop >/dev/null || true; cmd_start ;;
+  status) cmd_status ;;
+  logs) cmd_logs ;;
+  password) shift; cmd_password "$@" ;;
+  port) shift; cmd_port "$@" ;;
+  update) cmd_update ;;
+  doctor) cmd_doctor ;;
+  uninstall) cmd_uninstall ;;
+  _watchdog) cmd__watchdog ;;
+  help|-h|--help) cmd_help ;;
+  *) fail "Unknown command: $1"; cmd_help; exit 1 ;;
+esac
