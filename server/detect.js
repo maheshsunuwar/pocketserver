@@ -32,7 +32,10 @@ function node(dir) {
   const run = (s) => (pm === 'npm' ? `npm run ${s}` : `${pm} run ${s}`);
   const plan = { type: 'node', needs: ['node', pm], install, build: scripts.build ? run('build') : null };
 
-  if (scripts.start) plan.start = pm === 'npm' ? 'npm start' : `${pm} start`;
+  if (scripts.start && !scripts.prestart && !scripts.poststart) {
+    // Run the start script directly. Keeping npm/yarn alive as a wrapper costs ~60 MB per app.
+    plan.start = `PATH="$PWD/node_modules/.bin:$PATH" ${scripts.start}`;
+  } else if (scripts.start) plan.start = pm === 'npm' ? 'npm start' : `${pm} start`;
   else if (scripts.build && FRONTEND_TOOLS.some((t) => deps[t])) {
     plan.type = 'static';
     plan.staticDir = 'auto'; // dist/, build/ or out/ — resolved after the build

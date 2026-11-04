@@ -18,7 +18,15 @@ const TYPES = {
       const pwfile = path.join(dir, '.pw');
       fs.writeFileSync(pwfile, d.password, { mode: 0o600 });
       try {
-        await U.run('initdb', ['-D', path.join(dir, 'data'), '-U', 'postgres', '--auth=scram-sha-256', `--pwfile=${pwfile}`, '-E', 'UTF8', '--locale=C'], { onLine: log, label: 'initdb' });
+        // initdb normally takes seconds. If Android blocks the shared-memory check it can
+        // hang forever, so give up after 3 minutes with a useful message.
+        await U.run('initdb', ['-D', path.join(dir, 'data'), '-U', 'postgres', '--auth=scram-sha-256', `--pwfile=${pwfile}`, '-E', 'UTF8', '--locale=C'],
+          { onLine: log, label: 'initdb', timeout: 3 * 60 * 1000 });
+      } catch (e) {
+        if (/SIGKILL/.test(e.message)) {
+          throw new Error('PostgreSQL setup got stuck (initdb did not finish in 3 minutes). Try again, and if it keeps happening, open an issue with the logs.');
+        }
+        throw e;
       } finally { fs.rmSync(pwfile, { force: true }); }
     },
     cmd: (d, dir) => `exec postgres -D ${q(path.join(dir, 'data'))} -p ${d.port} -k ${q(dir)} -c listen_addresses=${d.lan ? "'*'" : 'localhost'}`,

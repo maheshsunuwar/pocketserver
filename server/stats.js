@@ -19,7 +19,7 @@ function deviceInfo() {
   device = {
     name: model ? `${U.getprop('ro.product.manufacturer')} ${model}`.trim() : os.hostname(),
     android: U.getprop('ro.build.version.release') || null,
-    rom: U.getprop('ro.lineage.version') ? `LineageOS ${U.getprop('ro.lineage.version').split('-')[0]}` : null,
+    rom: romName(),
     arch: process.arch,
     cores: cpuCount(),
     node: process.version,
@@ -74,16 +74,30 @@ function storage() {
   } catch { return null; }
 }
 
+// Apps can't read ROM-specific props like ro.lineage.version (SELinux), but
+// ro.build.flavor ("lineage_hotdog-userdebug") is readable on most custom ROMs.
+const ROMS = { lineage: 'LineageOS', crdroid: 'crDroid', evolution: 'Evolution X', pixelos: 'PixelOS',
+  derp: 'DerpFest', aicp: 'AICP', calyx: 'CalyxOS', graphene: 'GrapheneOS', e: '/e/OS', yaap: 'YAAP' };
+function romName() {
+  const flavor = U.getprop('ro.build.flavor') || U.getprop('ro.system.build.flavor');
+  const prefix = (flavor.match(/^([a-z]+)_/) || [])[1];
+  if (prefix && ROMS[prefix]) return ROMS[prefix];
+  const v = U.getprop('ro.lineage.version');
+  return v ? 'LineageOS' : null;
+}
+
 // ---- battery & temperature ----
-let apiBattery = { at: 0, value: null, broken: false };
+let apiBattery = { at: 0, value: null, failures: 0 };
 function batteryFromApi() {
   // Termux:API (optional add-on app) can read the battery even where /sys is blocked.
-  if (apiBattery.broken || !U.which('termux-battery-status')) return null;
-  if (Date.now() - apiBattery.at > 30000) {
+  if (!U.which('termux-battery-status')) return null;
+  // Back off when it fails (Termux:API app missing or not opened yet), but keep retrying.
+  const wait = apiBattery.failures ? Math.min(600000, 30000 * 2 ** apiBattery.failures) : 30000;
+  if (Date.now() - apiBattery.at > wait) {
     apiBattery.at = Date.now();
     execFile('termux-battery-status', { timeout: 5000 }, (err, out) => {
-      if (err) { apiBattery.broken = true; return; }
-      try { apiBattery.value = JSON.parse(out); } catch {}
+      if (err) { apiBattery.failures++; return; }
+      try { apiBattery.value = JSON.parse(out); apiBattery.failures = 0; } catch { apiBattery.failures++; }
     });
   }
   return apiBattery.value;

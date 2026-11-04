@@ -18,7 +18,7 @@ That old phone in your drawer has an 8-core CPU, gigabytes of RAM, a battery bac
 - **One-click databases:** PostgreSQL, MariaDB (MySQL) and Redis, with generated passwords and ready-made connection URLs.
 - **Free public URLs** through Cloudflare Tunnel. No port forwarding, works on mobile data. You can also use your own domain with HTTPS.
 - **Phone stats:** memory, storage, battery, temperature, and per-app CPU and memory.
-- **Lightweight:** plain Node.js with **zero npm dependencies**. It runs on Android 7+ (arm64, armv7, x86_64) and uses little memory.
+- **Lightweight:** plain Node.js with **zero npm dependencies**. It runs on Android 7+ (arm64, armv7, x86_64) and the dashboard itself uses about 55 MB of RAM.
 
 ## Install
 

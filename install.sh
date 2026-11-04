@@ -21,7 +21,10 @@ printf '%s\n' "${b}PocketHost${o} — turn this phone into a server"
 if [ "$IS_TERMUX" = 1 ]; then
   step "Installing packages (this can take a few minutes the first time)"
   export DEBIAN_FRONTEND=noninteractive
-  yes | pkg update -y >/dev/null 2>&1 || pkg update -y
+  # Upgrade, not just update: a fresh Termux has old libraries, and new packages
+  # like nodejs fail to start against them ("CANNOT LINK EXECUTABLE").
+  yes | pkg upgrade -y -o Dpkg::Options::=--force-confold >/dev/null 2>&1 \
+    || pkg upgrade -y -o Dpkg::Options::=--force-confold
   if ! command -v node >/dev/null; then pkg install -y nodejs-lts || pkg install -y nodejs; fi
   pkg install -y git termux-tools
   # Optional extras. Failures here aren't fatal: PocketHost installs what it needs later.
