@@ -532,7 +532,7 @@ function appInfo(a) {
   return h('div', { class: 'card', style: 'margin-bottom:14px' },
     c ? h('div', { class: 'creds' },
       h('div', null, h('div', { class: 'label' }, 'Open'), h('a', { href: url, target: '_blank', rel: 'noopener' }, url.replace(/^https?:\/\//, '') + ' ↗')),
-      h('div', null, h('div', { class: 'label' }, 'Username'), copyField(c.username)),
+      c.username ? h('div', null, h('div', { class: 'label' }, 'Username'), copyField(c.username)) : null,
       h('div', null, h('div', { class: 'label' }, 'Password'), copyField(c.password, { secret: true }))) : null,
     notes ? h('p', { class: 'faint', style: c ? 'margin:12px 0 0' : 'margin:0' }, notes) : null);
 }

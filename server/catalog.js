@@ -133,6 +133,25 @@ const RECIPES = [
     start: 'exec transmission-daemon --foreground --config-dir "$APP_DATA/config" --rpc-bind-address 0.0.0.0 --port "$PORT" --allowed "*.*.*.*" --auth --username admin --password "$ADMIN_PASSWORD" --download-dir "$DOWNLOAD_DIR" --no-portmap',
   },
 
+  {
+    id: 'code-server', name: 'VS Code (code-server)', icon: '🧑‍💻', category: 'Developer',
+    description: 'The full VS Code editor in your browser, running on the phone. Terminal included.',
+    website: 'https://coder.com/docs/code-server/latest/termux',
+    kind: 'native',
+    env: { PASSWORD: '{{password}}', WORKSPACE: '' },
+    credentials: { username: null },
+    // code-server lives in the Termux User Repository (tur-repo). The --require shim makes
+    // Android look like Linux to VS Code so extensions install (workaround from code-server's docs).
+    install: `set -e
+if ! command -v code-server >/dev/null; then
+  pkg install -y tur-repo
+  pkg install -y code-server
+fi
+echo "Object.defineProperty(process, 'platform', { get: () => 'linux' });" > "$APP_DATA/android-as-linux.js"`,
+    start: 'NODE_OPTIONS="--require $APP_DATA/android-as-linux.js" exec code-server --bind-addr "0.0.0.0:$PORT" --auth password --disable-telemetry --disable-update-check --user-data-dir "$APP_DATA/user-data" --extensions-dir "$APP_DATA/extensions" "${WORKSPACE:-$HOME}"',
+    notes: 'Opens your Termux home folder; set WORKSPACE in Environment to open another folder. Your apps\' code is in ~/.pockethost/apps/<app id>/src (redeploys replace it, so push changes to Git). Uses 300–500 MB of memory. Some extensions with native code may not work on Android.',
+  },
+
   // ---------- Docker images (udocker, experimental) ----------
   {
     id: 'uptime-kuma', name: 'Uptime Kuma', icon: '📈', category: 'Monitoring',
