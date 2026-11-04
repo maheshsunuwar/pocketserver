@@ -20,11 +20,19 @@ This works on macOS and Linux. Runtimes aren't auto-installed outside Termux, so
 
 ## Testing on a phone
 
-Install the GitHub build of Termux. It's a debug build, so `adb shell run-as com.termux` lets you poke around. Then:
+Install the GitHub build of Termux. It's a debug build, so `adb shell run-as com.termux` works. Connect over
+wireless debugging, then:
 
 ```sh
-POCKETHOST_SRC=/path/to/your/checkout bash install.sh   # inside Termux
+export PH_DEVICE=<ip>:<port>        # from `adb devices`
+dev/push.sh --install --samples     # copy this checkout to the phone, install it, add sample repos
+dev/push.sh                         # after each change
+dev/phone.sh 'pockethost logs'      # run a command inside Termux
 ```
+
+`dev/api.sh` calls the dashboard API and `dev/screenshot.mjs` takes screenshots. `CLAUDE.md` explains the
+caveats of testing over adb and the Android quirks we've already worked around. Read it before changing
+anything Android-specific.
 
 ## Code map
 
@@ -44,6 +52,7 @@ POCKETHOST_SRC=/path/to/your/checkout bash install.sh   # inside Termux
 | `ui/app.js` | The dashboard |
 | `bin/pockethost` | CLI and watchdog |
 | `install.sh` | Termux installer |
+| `dev/` | Test scripts and sample apps for developing on a phone |
 
 ## Adding an app to the catalog
 

@@ -1,0 +1,1 @@
+{"name":"c","scripts":{"start":"node -e \"console.log(1);process.exit(1)\""}}
