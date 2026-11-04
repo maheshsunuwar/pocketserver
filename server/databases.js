@@ -180,4 +180,6 @@ function restore() {
 const list = () => Object.values(state.databases).sort((x, y) => x.createdAt - y.createdAt).map(view);
 const one = (id) => view(get(id));
 
-module.exports = { list, one, create, start, stop, restart, update, remove, restore, TYPES };
+const isStarting = (id) => working.has(id);
+
+module.exports = { list, one, create, start, stop, restart, update, remove, restore, isStarting, TYPES };

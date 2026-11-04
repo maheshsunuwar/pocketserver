@@ -12,6 +12,7 @@ const dbs = require('./databases');
 const dbdata = require('./dbdata');
 const sshd = require('./sshd');
 const gitkey = require('./gitkey');
+const catalog = require('./catalog');
 const tunnels = require('./tunnels');
 const stats = require('./stats');
 const VERSION = require('../package.json').version;
@@ -104,6 +105,8 @@ route('POST', '/api/apps/:id/start', async (req, res, p) => { apps.one(p.id); ap
 route('POST', '/api/apps/:id/stop', async (req, res, p) => { await apps.stop(p.id); return { ok: true }; });
 route('POST', '/api/apps/:id/restart', async (req, res, p) => { await apps.restart(p.id); return { ok: true }; });
 route('POST', '/api/apps/:id/public', async (req, res, p, body) => apps.setPublic(p.id, !!body.enabled));
+route('GET', '/api/catalog', async () => catalog.list());
+route('POST', '/api/catalog/:id/install', async (req, res, p, body) => catalog.install(p.id, body));
 route('POST', '/api/hooks/:id', async (req, res, p, raw, query) => apps.webhook(p.id, req, raw, query), { auth: false, raw: true });
 
 // ---------- databases ----------

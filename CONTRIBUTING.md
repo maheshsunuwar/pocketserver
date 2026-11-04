@@ -37,12 +37,17 @@ POCKETHOST_SRC=/path/to/your/checkout bash install.sh   # inside Termux
 | `server/databases.js` | PostgreSQL / MariaDB / Redis |
 | `server/dbdata.js` | Data browser: tables, rows, SQL console, Redis keys |
 | `server/gitkey.js` | The phone's SSH key for private repos |
+| `server/catalog.js` | One-click app recipes (native Termux packages and Docker images) |
 | `server/sshd.js` | Optional SSH server for terminals and VS Code |
 | `server/tunnels.js` | Cloudflare quick tunnels and named tunnels |
 | `server/stats.js` | Phone stats with Android-safe fallbacks |
 | `ui/app.js` | The dashboard |
 | `bin/pockethost` | CLI and watchdog |
 | `install.sh` | Termux installer |
+
+## Adding an app to the catalog
+
+Add a recipe to `server/catalog.js`. Prefer a Termux package (`pkg search <name>`): it's built for Android and needs no Docker. Commands get `$PORT`, `$APP_DATA` (a private folder that survives redeploys) and `$APP_URL`. Install commands run on every redeploy, so make them safe to re-run. Test it on a phone, and put any Android workaround in a comment (see Syncthing's `STMONITORED`).
 
 ## Device reports
 

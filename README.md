@@ -11,6 +11,8 @@ That old phone in your drawer has an 8-core CPU, gigabytes of RAM, a battery bac
 
 ## Features
 
+- **One-click app catalog.** Syncthing, Navidrome, Gitea, Forgejo, Miniflux, Gotify, PocketBase, Dufs and Transmission run natively (Android builds from Termux), with an admin login generated for you. Uptime Kuma, Vaultwarden, Memos, ntfy, Actual, linkding and IT Tools run from their Docker images (experimental).
+- **Docker images, without Docker.** Paste an image name like `louislam/uptime-kuma:2` and it runs through [udocker](https://github.com/indigo-dc/udocker) (no root). Experimental: images that need to be PID 1 (s6-overlay, systemd) don't work, and there is no compose.
 - **Deploy from Git.** Paste a repo URL. PocketHost clones it, detects the stack, installs dependencies, builds and runs it.
 - **Auto-detects** Node.js, Python (Django, Flask, FastAPI), Go, Rust, PHP, static sites, frontend builds (Vite, React, Angular…) and `Procfile`s. Missing runtimes are installed for you.
 - **Auto-deploy on push.** Checks your repo for new commits every 2 minutes, so it works behind any home router. Webhooks for GitHub, GitLab and Gitea are supported too.
@@ -78,13 +80,14 @@ Coolify runs everything in Docker. On Android, Docker needs root plus a custom k
 |---|---|---|
 | Runs on | Linux server/VPS | Any Android phone (no root) |
 | Isolation | Docker containers | Separate processes and folders |
-| Dockerfiles | ✅ | ❌ (uses auto-detection or your commands) |
+| Docker images | ✅ | ⚠️ Experimental, through udocker (no isolation, no compose) |
+| One-click apps | ✅ Many | ✅ 16 (9 native, 7 Docker) |
 | Git deploys, env vars, logs | ✅ | ✅ |
 | Databases | Many | PostgreSQL, MariaDB, Redis |
 | Public URLs | Your domain + Traefik | Free Cloudflare quick tunnels or your domain |
 
 **What works on a phone:** web apps, APIs, bots, small sites, home dashboards and databases for personal use.<br>
-**Not a good fit:** anything that only ships as a Docker image, heavy machine-learning workloads, or high-traffic production sites.
+**Not a good fit:** images that need a full init system (Home Assistant, many linuxserver.io images), heavy machine-learning workloads, or high-traffic production sites.
 
 ## Security
 

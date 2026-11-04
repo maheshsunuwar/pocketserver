@@ -16,6 +16,9 @@ const STATIC_SERVER = path.join(__dirname, 'static-serve.js');
 const POLL_MS = 2 * 60 * 1000;
 const appDir = (id) => path.join(U.paths.apps, id);
 const srcDir = (id) => path.join(appDir(id), 'src');
+const dataDir = (id) => path.join(appDir(id), 'data');
+const containerName = (id) => `pockethost-${id}`;
+const lanUrl = (port) => `http://${(U.localIPs()[0] || {}).address || 'localhost'}:${port}`;
 const deploying = new Set();
 const pending = new Set();
 
@@ -56,7 +59,34 @@ function applyInput(a, input, isNew) {
     if (n.length > 60) throw U.bad('That name is too long.');
     a.name = n;
   }
-  if (isNew) a.source = input.source === 'command' ? 'command' : 'git';
+  if (isNew) a.source = ['command', 'docker'].includes(input.source) ? input.source : 'git';
+  if (a.source === 'docker') {
+    a.docker = a.docker || { volumes: [] };
+    if (isNew || input.image !== undefined) {
+      const img = String(input.image || '').trim();
+      if (!img) throw U.bad('Enter a Docker image, like louislam/uptime-kuma:2.');
+      if (img.startsWith('-') || !/^[a-z0-9][a-z0-9._\-/:@]*$/i.test(img)) throw U.bad("That doesn't look like a Docker image name.");
+      if (a.docker.image !== img) changed.source = true;
+      a.docker.image = img;
+    }
+    if (input.containerPort !== undefined) {
+      const cp = input.containerPort === null || input.containerPort === '' ? null : Number(input.containerPort);
+      if (cp !== null && (!Number.isInteger(cp) || cp < 1 || cp > 65535)) throw U.bad('Container port must be a number between 1 and 65535.');
+      if (a.docker.containerPort !== cp) changed.run = true;
+      a.docker.containerPort = cp;
+    }
+    if (input.volumes !== undefined) {
+      const vols = (Array.isArray(input.volumes) ? input.volumes : String(input.volumes).split('\n')).map((v) => String(v).trim()).filter(Boolean);
+      for (const v of vols) if (!v.startsWith('/') || v.includes('..') || /[\s:]/.test(v)) throw U.bad(`Volumes are folders inside the container, like /data. "${v}" isn't one.`);
+      if (JSON.stringify(vols) !== JSON.stringify(a.docker.volumes)) changed.run = true;
+      a.docker.volumes = vols;
+    }
+    if (input.command !== undefined) {
+      const c = String(input.command || '').trim();
+      if ((a.docker.command || '') !== c) changed.run = true;
+      a.docker.command = c;
+    }
+  }
   if (a.source === 'git') {
     if (isNew || input.repo !== undefined) {
       const r = gitkey.normalize(input.repo);
@@ -88,6 +118,7 @@ function applyInput(a, input, isNew) {
     a.commands[k] = v;
   }
   if (a.source === 'command' && !a.commands.start) throw U.bad('Enter the command that starts your app.');
+  if (a.source === 'docker' && changed.start) changed.run = true;
   if (input.env !== undefined) {
     const env = parseEnv(input.env);
     if (JSON.stringify(env) !== JSON.stringify(a.env || {})) changed.run = true;
@@ -107,6 +138,8 @@ function view(a) {
     desired: a.desired, status: deploying.has(a.id) ? 'deploying' : p.status,
     pid: p.pid, startedAt: p.startedAt, restarts: p.restarts,
     tunnel: S.info('tunnel-' + a.id).status,
+    docker: a.docker || null, credentials: a.credentials || null, catalog: a.catalog || null,
+    dependsOn: a.dependsOn || [], dataDir: dataDir(a.id),
   };
 }
 
@@ -117,6 +150,58 @@ const TOOLCHAINS = [
   { bin: 'clang', name: 'a C compiler', re: /unable to execute '?(clang|gcc|cc)'?|(clang|gcc|cc): (command )?not found|command '(clang|gcc|cc)' failed|No such file or directory: '(cc|gcc|clang)'/i },
   { bin: 'make', name: 'make', re: /make: (command )?not found|No such file or directory: 'make'/i },
 ];
+async function finishStart(a, t0, reason, sha, commit, log) {
+  const id = a.id;
+  log(`Waiting for the app to listen on port ${a.port}…`);
+  // Docker images can take a while on first start (unpacking, migrations).
+  const wait = a.source === 'docker' ? 5 * 60e3 : 90000;
+  const up = await U.waitPort(a.port, wait, () => { const i = S.info(id); return i.status !== 'stopped' && i.restarts < 3; });
+  if (!up && S.info(id).restarts >= 3) throw new Error('The app keeps crashing right after it starts. Check the logs above.');
+  a.lastDeploy = { ok: true, at: Date.now(), sha, commit, seconds: Math.round((Date.now() - t0) / 1000), reason, listening: up };
+  log(up
+    ? `✓ Deployed in ${a.lastDeploy.seconds}s. Listening on port ${a.port}.`
+    : a.source === 'docker'
+      ? `⚠ The container started but isn't answering on port ${a.port}. Check the container port in Settings, and the logs above.`
+      : `⚠ The app started but isn't answering on port ${a.port}. Make sure it listens on the PORT environment variable (and 0.0.0.0).`);
+  if (a.public && a.public.enabled && S.info('tunnel-' + id).status !== 'running') tunnels.enableApp(a).catch(() => {});
+}
+
+/** Apps installed with a database wait until it's ready (it may still be installing). */
+async function waitForDatabases(a, log) {
+  for (const dbId of a.dependsOn || []) {
+    const d = state.databases[dbId];
+    if (!d) continue;
+    const ready = () => d.initialized && S.info(dbId).status === 'running';
+    if (ready()) continue;
+    log(`Waiting for the database "${d.name}" to be ready…`, 'sys');
+    const until = Date.now() + 15 * 60e3;
+    while (!ready()) {
+      if (d.error && !require('./databases').isStarting(dbId)) throw new Error(`The database "${d.name}" failed to start: ${d.error}`);
+      if (Date.now() > until) throw new Error(`The database "${d.name}" isn't ready after 15 minutes. Check its logs.`);
+      await U.sleep(2000);
+    }
+  }
+}
+
+const PLATFORM = { arm64: 'linux/arm64', arm: 'linux/arm/v7', x64: 'linux/amd64' }[process.arch] || 'linux/arm64';
+
+async function deployDocker(a, log) {
+  const img = a.docker.image;
+  await pkgs.ensure(['udocker', 'proot'], (l) => log(l, 'out'));
+  log(`Pulling ${img} (${PLATFORM})…`);
+  await U.run('udocker', ['pull', `--platform=${PLATFORM}`, img], { onLine: (l) => log(l, 'out'), label: 'udocker pull', timeout: 60 * 60e3 })
+    .catch((e) => {
+      if (/manifest|platform|not found|no image/i.test(e.output || '')) {
+        throw new Error(`Couldn't pull ${img} for this phone (${PLATFORM}). Check the name, and that the image is published for ${PLATFORM}.`);
+      }
+      throw e;
+    });
+  // Recreate the container on every deploy (like docker compose up): your data lives in volumes.
+  await U.run('udocker', ['rm', containerName(a.id)], { label: 'udocker rm' }).catch(() => {});
+  log('Creating the container…');
+  await U.run('udocker', ['create', `--name=${containerName(a.id)}`, img], { onLine: (l) => log(l, 'out'), label: 'udocker create', timeout: 30 * 60e3 });
+}
+
 async function runStep(cmd, label, cwd, env, log) {
   const tried = new Set();
   for (;;) {
@@ -138,6 +223,8 @@ function envFor(a, cwd, plan, runtime) {
   for (const k of Object.keys(env)) if (k.startsWith('POCKETHOST_')) delete env[k];
   env.PORT = String(a.port);
   env.HOST = '0.0.0.0';
+  env.APP_DATA = dataDir(a.id); // private folder that survives redeploys
+  env.APP_URL = lanUrl(a.port);
   // Python packages built with Rust (maturin) refuse to build on Android without this.
   if (U.isTermux && !env.ANDROID_API_LEVEL) env.ANDROID_API_LEVEL = U.getprop('ro.build.version.sdk') || '24';
   if (runtime) env.NODE_ENV = 'production'; // not during install: npm would skip devDependencies needed to build
@@ -148,21 +235,44 @@ function envFor(a, cwd, plan, runtime) {
   return Object.assign(env, a.env || {});
 }
 
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+
+/** The udocker command that runs a Docker app. Built at each start so env/port edits apply on restart. */
+function dockerCmd(a) {
+  const d = a.docker;
+  const cport = d.containerPort || a.port;
+  const fill = (s) => String(s).replace(/\{\{port\}\}/g, String(cport));
+  const args = ['exec', 'udocker', '--quiet', 'run', '--nobanner'];
+  if (cport !== a.port) args.push(`--publish=${a.port}:${cport}`);
+  args.push(`--env=${shq(`PORT=${cport}`)}`);
+  for (const [k, v] of Object.entries(a.env || {})) args.push(`--env=${shq(`${k}=${fill(v)}`)}`);
+  for (const v of d.volumes || []) args.push(`--volume=${shq(`${path.join(dataDir(a.id), 'volumes', v.replace(/^\/+/, '').replace(/\//g, '_'))}:${v}`)}`);
+  args.push(containerName(a.id));
+  if (d.command) args.push(fill(d.command)); // split by the shell, like docker run's CMD
+  return args.join(' ');
+}
+
 function startProc(a) {
   if (!a.plan) return false;
+  if (a.source === 'docker') {
+    for (const v of a.docker.volumes || []) fs.mkdirSync(path.join(dataDir(a.id), 'volumes', v.replace(/^\/+/, '').replace(/\//g, '_')), { recursive: true });
+    S.start(a.id, { cmd: dockerCmd(a), cwd: dataDir(a.id), env: { ...process.env } });
+    return true;
+  }
   // A plain-command app can have its start command edited without a redeploy.
   const cmd = a.source === 'command' ? a.commands.start : a.plan.start;
   S.start(a.id, { cmd, cwd: a.plan.cwd, env: envFor(a, a.plan.cwd, a.plan, true) });
   return true;
 }
 
-async function create(input) {
+async function create(input, { prepare } = {}) {
   const a = {
     id: U.id(), createdAt: Date.now(), env: {}, autoDeploy: true, desired: 'running',
     webhookSecret: U.secret(18), public: { enabled: false, url: null },
   };
   applyInput(a, input, true);
   a.port = input.port ? ports.validate(input.port, a.id) : await ports.allocate(3001, a.id);
+  if (prepare) prepare(a); // catalog installs fill in env, credentials and dependencies here
   state.apps[a.id] = a;
   save();
   deploy(a.id, 'first deploy').catch(() => {});
@@ -215,6 +325,18 @@ async function deploy(id, reason = 'manual') {
   let commit = null;
   try {
     let cwd;
+    fs.mkdirSync(dataDir(id), { recursive: true });
+    await waitForDatabases(a, log);
+    if (a.packages && a.packages.length) await pkgs.ensure(a.packages, (l) => log(l, 'out'));
+    if (a.source === 'docker') {
+      await deployDocker(a, log);
+      a.plan = { type: 'docker', start: null, cwd: dataDir(id) };
+      save();
+      await S.stop(id);
+      startProc(a);
+      await finishStart(a, t0, reason, null, null, log);
+      return;
+    }
     if (a.source === 'git') {
       await pkgs.ensure(['git'], (l) => log(l, 'out'));
       const src = srcDir(id);
@@ -245,7 +367,7 @@ async function deploy(id, reason = 'manual') {
       fs.mkdirSync(cwd, { recursive: true });
     }
 
-    const auto = a.source === 'git' ? detect(cwd) : { type: 'command', needs: [] };
+    const auto = a.source === 'git' ? detect(cwd) : { type: a.catalog ? a.catalog.id : 'command', needs: [] };
     const c = a.commands || {};
     const plan = { ...auto, install: c.install || auto.install || null, build: c.build || auto.build || null, start: c.start || auto.start || null };
     if (c.start) { delete plan.staticDir; delete plan.error; }
@@ -274,14 +396,7 @@ async function deploy(id, reason = 'manual') {
     save();
     await S.stop(id);
     startProc(a);
-    log(`Waiting for the app to listen on port ${a.port}…`);
-    const up = await U.waitPort(a.port, 90000, () => { const i = S.info(id); return i.status !== 'stopped' && i.restarts < 3; });
-    if (!up && S.info(id).restarts >= 3) throw new Error('The app keeps crashing right after it starts. Check the logs above.');
-    a.lastDeploy = { ok: true, at: Date.now(), sha, commit, seconds: Math.round((Date.now() - t0) / 1000), reason, listening: up };
-    log(up
-      ? `✓ Deployed in ${a.lastDeploy.seconds}s. Listening on port ${a.port}.`
-      : `⚠ The app started but isn't answering on port ${a.port}. Make sure it listens on the PORT environment variable (and 0.0.0.0).`);
-    if (a.public && a.public.enabled && S.info('tunnel-' + id).status !== 'running') tunnels.enableApp(a).catch(() => {});
+    await finishStart(a, t0, reason, sha, commit, log);
   } catch (e) {
     log(`✗ Deploy failed: ${e.message}`, 'err');
     a.lastDeploy = { ok: false, at: Date.now(), sha, commit, seconds: Math.round((Date.now() - t0) / 1000), reason, error: e.message };
@@ -328,6 +443,7 @@ async function remove(id) {
   S.dropLogs(id);
   S.dropLogs('tunnel-' + id);
   fs.rmSync(appDir(id), { recursive: true, force: true });
+  if (a.source === 'docker') U.run('udocker', ['rm', containerName(id)], { label: 'udocker rm' }).catch(() => {});
   delete state.apps[id];
   save();
 }
@@ -406,4 +522,4 @@ const list = () => Object.values(state.apps).sort((x, y) => x.createdAt - y.crea
 const one = (id) => view(get(id));
 const isDeploying = (id) => deploying.has(id);
 
-module.exports = { list, one, create, update, deploy, start, stop, restart, remove, setPublic, webhook, restore, isDeploying };
+module.exports = { list, one, create, update, deploy, start, stop, restart, remove, setPublic, webhook, restore, isDeploying, dataDir, _test: { dockerCmd } };

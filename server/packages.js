@@ -7,7 +7,9 @@ const TERMUX_PKG = {
   node: 'nodejs-lts', npm: 'nodejs-lts', python: 'python', go: 'golang', cargo: 'rust', php: 'php',
   composer: 'composer', git: 'git', cloudflared: 'cloudflared', postgres: 'postgresql', initdb: 'postgresql',
   psql: 'postgresql', mariadbd: 'mariadb', 'mariadb-install-db': 'mariadb', mariadb: 'mariadb',
-  'redis-server': 'redis', 'termux-battery-status': 'termux-api', ssh: 'openssh', clang: 'clang', make: 'make', 'ssh-keygen': 'openssh', sshd: 'openssh',
+  'redis-server': 'redis', 'termux-battery-status': 'termux-api', ssh: 'openssh', clang: 'clang', make: 'make', udocker: 'udocker', proot: 'proot',
+  syncthing: 'syncthing', navidrome: 'navidrome', gitea: 'gitea', forgejo: 'forgejo', miniflux: 'miniflux', gotify: 'gotify',
+  pocketbase: 'pocketbase', dufs: 'dufs', 'transmission-daemon': 'transmission', 'ssh-keygen': 'openssh', sshd: 'openssh',
 };
 const NPM_GLOBAL = { pnpm: 'pnpm', yarn: 'yarn' };
 

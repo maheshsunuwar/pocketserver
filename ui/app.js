@@ -276,14 +276,122 @@ async function Dashboard(v) {
 
 // ---------- new app ----------
 function NewApp(v) {
-  let source = 'git';
+  const tabs = h('div', { class: 'segmented' });
+  const body = h('div');
+  const show = (k) => {
+    tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.k === k));
+    fill(body, k === 'catalog' ? catalogPicker() : k === 'docker' ? dockerForm() : sourceForm(k));
+  };
+  [['catalog', 'App catalog'], ['git', 'Git repository'], ['docker', 'Docker image'], ['command', 'Command']]
+    .forEach(([k, label]) => tabs.append(h('button', { type: 'button', 'data-k': k, onclick: () => show(k) }, label)));
+  v.render(h('div', null,
+    h('a', { class: 'back', href: '#/' }, '← Dashboard'),
+    h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'New app'),
+      h('div', { class: 'sub' }, 'Install a ready-made app, deploy your own code, or run a Docker image.'))),
+    tabs, body));
+  show('catalog');
+}
+
+function catalogPicker() {
+  const grid = h('div', { class: 'grid tiles' }, h('div', { class: 'faint' }, 'Loading…'));
+  const filter = h('input', { type: 'text', placeholder: 'Search apps…' });
+  let all = [];
+  const draw = () => {
+    const q = filter.value.trim().toLowerCase();
+    const items = all.filter((r) => !q || `${r.name} ${r.description} ${r.category}`.toLowerCase().includes(q));
+    const section = (title, help, list) => list.length ? [
+      h('div', { class: 'section-head', style: 'grid-column:1/-1;margin:12px 0 0' }, h('h2', null, title, h('span', { class: 'count' }, list.length)), h('span', { class: 'faint', style: 'font-size:12.5px' }, help)),
+      list.map(catalogTile)] : null;
+    fill(grid,
+      section('Runs natively', 'Built for Android. Fast and reliable.', items.filter((r) => r.kind === 'native')),
+      section('Docker images', 'Experimental: runs through udocker. Slower, and some images won\'t work.', items.filter((r) => r.kind === 'docker')),
+      !items.length ? h('div', { class: 'empty', style: 'grid-column:1/-1' }, h('p', null, 'No match. Try a Docker image or a Git repository instead.')) : null);
+  };
+  filter.addEventListener('input', draw);
+  api('GET', '/catalog').then((r) => { all = r; draw(); }).catch((e) => fill(grid, h('div', { class: 'banner' }, e.message)));
+  return h('div', null, h('div', { style: 'max-width:360px;margin-bottom:8px' }, filter), grid,
+    h('p', { class: 'faint', style: 'margin-top:20px' }, 'Want an app that isn\'t here? Use the Docker image tab with its image name from Docker Hub, or the Git repository tab.'));
+}
+
+function catalogTile(r) {
+  return h('div', { class: 'card tile catalog-tile', role: 'button', tabindex: 0, onclick: () => installDialog(r), onkeydown: (e) => { if (e.key === 'Enter') installDialog(r); } },
+    h('div', { class: 'tile-top' }, h('span', { class: 'app-icon' }, r.icon || r.name[0]), h('span', { class: 'name' }, r.name)),
+    h('p', { class: 'muted', style: 'margin:8px 0 10px;font-size:13px' }, r.description),
+    h('div', { class: 'meta', style: 'margin:0' },
+      h('span', { class: 'badge' }, r.category),
+      r.kind === 'docker' ? h('span', { class: 'badge warn' }, 'Docker · experimental') : h('span', { class: 'badge ok' }, 'Native'),
+      r.needsDb ? h('span', { class: 'badge' }, `+ ${r.needsDb === 'postgres' ? 'PostgreSQL' : r.needsDb}`) : null));
+}
+
+function installDialog(r) {
+  const name = h('input', { type: 'text', value: r.name, maxlength: 60 });
+  const btn = h('button', { class: 'btn primary', type: 'submit' }, `Install ${r.name}`);
+  const close = openModal(h('form', {
+    onsubmit: busy(btn, async () => {
+      const a = await api('POST', `/catalog/${r.id}/install`, { name: name.value });
+      close();
+      toast(`Installing ${r.name}…`, 'ok');
+      go('/apps/' + a.id + '/logs');
+    }),
+  },
+  h('div', { class: 'tile-top', style: 'margin-bottom:10px' }, h('span', { class: 'app-icon' }, r.icon), h('h3', { style: 'margin:0' }, r.name)),
+  h('p', { class: 'muted' }, r.description, ' ', r.website ? h('a', { href: r.website, target: '_blank', rel: 'noopener' }, 'Website ↗') : null),
+  r.kind === 'docker' ? h('div', { class: 'banner', style: 'margin:0 0 14px' }, `Runs the ${r.image} Docker image through udocker. This is experimental: the first install downloads the image and can take several minutes, and it uses more memory than native apps.`) : null,
+  r.needsDb ? h('p', { class: 'muted' }, 'A PostgreSQL database will be created for it.') : null,
+  r.notes ? h('p', { class: 'faint' }, r.notes) : null,
+  field('Name', name),
+  h('div', { class: 'form-actions' }, btn, h('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'))));
+}
+
+function dockerForm() {
+  const image = h('input', { type: 'text', placeholder: 'louislam/uptime-kuma:2', spellcheck: 'false', autocomplete: 'off' });
+  const name = h('input', { type: 'text', placeholder: 'my-app', maxlength: 60 });
+  const cport = h('input', { type: 'number', placeholder: '80', min: 1, max: 65535 });
+  const volumes = h('textarea', { placeholder: '/data', spellcheck: 'false', style: 'min-height:70px' });
+  const command = h('input', { type: 'text', placeholder: 'Image default', spellcheck: 'false' });
+  const env = h('textarea', { placeholder: 'TZ=Europe/London', spellcheck: 'false', style: 'min-height:90px' });
+  image.addEventListener('input', () => {
+    const m = image.value.trim().match(/([^/:@]+)(?::[^/]*)?$/);
+    if (m && !name.dataset.touched) name.value = m[1];
+  });
+  name.addEventListener('input', () => { name.dataset.touched = '1'; });
+  const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Pull and run');
+  const err = h('div', { class: 'error-text' });
+  const form = h('form', {
+    onsubmit: busy(btn, async () => {
+      err.textContent = '';
+      try {
+        const a = await api('POST', '/apps', { source: 'docker', image: image.value, name: name.value, containerPort: cport.value ? Number(cport.value) : null, volumes: volumes.value, command: command.value, env: env.value });
+        toast('Pulling the image…', 'ok');
+        go('/apps/' + a.id + '/logs');
+      } catch (e) { err.textContent = e.message; throw e; }
+    }),
+  },
+  field('Image', image, 'From Docker Hub or another registry. It must be published for arm64 (most popular images are).'),
+  field('Name', name),
+  field('Container port', cport, 'The port the app listens on inside the container (from the image\'s docs, e.g. 80, 3000, 8080). PocketHost maps it to a free port on the phone.'),
+  field('Volumes', volumes, 'Folders inside the container to keep between updates, one per line, e.g. /data. They are stored in the app\'s data folder.'),
+  h('details', { class: 'advanced' }, h('summary', null, 'Advanced: command'), field('Command', command, 'Overrides the image\'s CMD.')),
+  field('Environment variables', env, 'One KEY=value per line, as in docker run -e.'),
+  h('div', { class: 'form-actions' }, btn, h('a', { class: 'btn ghost', href: '#/' }, 'Cancel')), err);
+  setTimeout(() => image.focus(), 50);
+  return h('div', { class: 'grid two' }, h('div', { class: 'card' }, form),
+    h('div', { class: 'card' }, h('h3', null, 'Docker on a phone (experimental)'),
+      h('ul', { class: 'steps' },
+        h('li', null, 'Images run with ', h('strong', null, 'udocker'), ', without Docker or root. There is no isolation between containers.'),
+        h('li', null, 'Images that need to be the main system process (s6-overlay, systemd), like many linuxserver.io images and Home Assistant, don\'t work.'),
+        h('li', null, 'docker-compose files aren\'t supported. Run each service as its own app and connect them with environment variables.'),
+        h('li', null, 'Native apps from the catalog are faster and use less memory. Prefer them when available.'))));
+}
+
+function sourceForm(source) {
   const name = h('input', { type: 'text', placeholder: 'my-app', maxlength: 60 });
   const repo = h('input', { type: 'text', placeholder: 'https://github.com/you/your-app  or  you/your-app', autocomplete: 'off', spellcheck: 'false' });
   const branch = h('input', { type: 'text', placeholder: 'Default branch' });
   const subdir = h('input', { type: 'text', placeholder: 'Leave empty for the repo root' });
   const install = h('input', { type: 'text', placeholder: 'Auto-detected', spellcheck: 'false' });
   const build = h('input', { type: 'text', placeholder: 'Auto-detected', spellcheck: 'false' });
-  const start = h('input', { type: 'text', placeholder: 'Auto-detected', spellcheck: 'false' });
+  const start = h('input', { type: 'text', placeholder: source === 'command' ? 'node bot.js' : 'Auto-detected', spellcheck: 'false' });
   const port = h('input', { type: 'number', placeholder: 'Pick automatically', min: 1024, max: 65535 });
   const env = h('textarea', { placeholder: 'DATABASE_URL=postgresql://…\nSECRET_KEY=…', spellcheck: 'false' });
   const auto = h('input', { type: 'checkbox', checked: true });
@@ -292,40 +400,16 @@ function NewApp(v) {
     if (m && !name.dataset.touched) name.value = m[1];
   });
   name.addEventListener('input', () => { name.dataset.touched = '1'; });
-
-  const gitFields = h('div', null,
-    field('Repository', repo, h('span', null, 'A GitHub link, or just ', h('code', null, 'you/app'), '. Private repo? Use its SSH address (', h('code', null, 'git@github.com:you/app.git'), ') and add this phone\'s key in ', h('a', { href: '#/settings' }, 'Settings → Git access'), '.')),
-    h('div', { class: 'row' }, field('Branch', branch), field('Folder', subdir, 'For monorepos')));
+  const isGit = source === 'git';
   const startField = field('Start command', start, 'Your app must listen on the PORT environment variable.');
-  const cmdNote = h('p', { class: 'muted' }, 'Run any program that keeps running, like a bot or a binary you copied to the phone. It runs from its own folder.');
-  const advanced = h('details', { class: 'advanced' }, h('summary', null, 'Advanced: commands and port'),
-    h('div', { class: 'row' }, field('Install command', install), field('Build command', build)),
-    startField, field('Port', port));
-  const commandFields = h('div', { hidden: true }, cmdNote);
-  const autoField = h('label', { class: 'check' }, auto, h('span', null, 'Redeploy automatically when I push', h('small', null, 'Checks the repository for new commits every 2 minutes. Works behind any router.')));
-
-  const seg = h('div', { class: 'segmented' });
-  const setSource = (s) => {
-    source = s;
-    seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.s === s));
-    gitFields.hidden = s !== 'git';
-    commandFields.hidden = s !== 'command';
-    autoField.hidden = s !== 'git';
-    if (s === 'command') { commandFields.append(startField); start.placeholder = 'node bot.js'; }
-    else { advanced.append(startField); start.placeholder = 'Auto-detected'; }
-  };
-  seg.append(
-    h('button', { type: 'button', 'data-s': 'git', class: 'on', onclick: () => setSource('git') }, 'Git repository'),
-    h('button', { type: 'button', 'data-s': 'command', onclick: () => setSource('command') }, 'Command'));
-
-  const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Create and deploy');
+  const btn = h('button', { class: 'btn primary', type: 'submit' }, isGit ? 'Create and deploy' : 'Create and start');
   const err = h('div', { class: 'error-text' });
   const form = h('form', {
     onsubmit: busy(btn, async () => {
       err.textContent = '';
       try {
         const body = { source, name: name.value, env: env.value, install: install.value, build: build.value, start: start.value, autoDeploy: auto.checked };
-        if (source === 'git') Object.assign(body, { repo: repo.value, branch: branch.value, subdir: subdir.value });
+        if (isGit) Object.assign(body, { repo: repo.value, branch: branch.value, subdir: subdir.value });
         if (port.value) body.port = Number(port.value);
         const a = await api('POST', '/apps', body);
         toast('App created. Deploying…', 'ok');
@@ -333,26 +417,27 @@ function NewApp(v) {
       } catch (e) { err.textContent = e.message; throw e; }
     }),
   },
-  seg, gitFields, commandFields, field('Name', name), advanced,
+  isGit ? [
+    field('Repository', repo, h('span', null, 'A GitHub link, or just ', h('code', null, 'you/app'), '. Private repo? Use its SSH address (', h('code', null, 'git@github.com:you/app.git'), ') and add this phone\'s key in ', h('a', { href: '#/settings' }, 'Settings → Git access'), '.')),
+    h('div', { class: 'row' }, field('Branch', branch), field('Folder', subdir, 'For monorepos'))]
+    : [h('p', { class: 'muted' }, 'Run any program that keeps running, like a bot or a binary you copied to the phone. It runs from its own folder; $APP_DATA is a folder for its data.'), startField],
+  field('Name', name),
+  h('details', { class: 'advanced' }, h('summary', null, isGit ? 'Advanced: commands and port' : 'Advanced: install command and port'),
+    h('div', { class: 'row' }, field('Install command', install), isGit ? field('Build command', build) : null),
+    isGit ? startField : null, field('Port', port)),
   field('Environment variables', env, 'One KEY=value per line. PORT is set for you.'),
-  autoField,
+  isGit ? h('label', { class: 'check' }, auto, h('span', null, 'Redeploy automatically when I push', h('small', null, 'Checks the repository for new commits every 2 minutes. Works behind any router.'))) : null,
   h('div', { class: 'form-actions' }, btn, h('a', { class: 'btn ghost', href: '#/' }, 'Cancel')), err);
-
-  v.render(h('div', null,
-    h('a', { class: 'back', href: '#/' }, '← Dashboard'),
-    h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'New app'),
-      h('div', { class: 'sub' }, 'Node, Python, Go, Rust, PHP and static sites are detected automatically.'))),
-    h('div', { class: 'grid two' },
-      h('div', { class: 'card' }, form),
-      h('div', { class: 'card' }, h('h3', null, 'How it works'),
-        h('ol', { class: 'steps' },
-          h('li', null, h('strong', null, 'Clone. '), 'PocketHost pulls your repository onto the phone.'),
-          h('li', null, h('strong', null, 'Detect. '), 'It looks for package.json, requirements.txt, go.mod, Cargo.toml, composer.json, a Procfile or index.html, and installs the runtime if it is missing.'),
-          h('li', null, h('strong', null, 'Build and run. '), 'Dependencies are installed, the build runs, and your app starts with ', h('code', null, 'PORT'), ' set. It is restarted if it crashes.'),
-          h('li', null, h('strong', null, 'Share. '), 'Open it on your Wi-Fi straight away, or turn on a free public URL from the app page.')),
-        h('p', { class: 'faint', style: 'margin-top:12px' }, 'Want to try it? Use ', h('code', null, 'https://github.com/heroku/node-js-getting-started')),
-        h('p', { class: 'faint' }, "Docker images can't run on Android without root, so apps run directly on the phone instead.")))));
-  setTimeout(() => repo.focus(), 50);
+  setTimeout(() => (isGit ? repo : start).focus(), 50);
+  return h('div', { class: 'grid two' },
+    h('div', { class: 'card' }, form),
+    isGit ? h('div', { class: 'card' }, h('h3', null, 'How it works'),
+      h('ol', { class: 'steps' },
+        h('li', null, h('strong', null, 'Clone. '), 'PocketHost pulls your repository onto the phone.'),
+        h('li', null, h('strong', null, 'Detect. '), 'It looks for package.json, requirements.txt, go.mod, Cargo.toml, composer.json, a Procfile or index.html, and installs the runtime if it is missing.'),
+        h('li', null, h('strong', null, 'Build and run. '), 'Dependencies are installed, the build runs, and your app starts with ', h('code', null, 'PORT'), ' set. It is restarted if it crashes.'),
+        h('li', null, h('strong', null, 'Share. '), 'Open it on your Wi-Fi straight away, or turn on a free public URL from the app page.')),
+      h('p', { class: 'faint', style: 'margin-top:12px' }, 'Only a Dockerfile? Use the Docker image tab with a published image instead.')) : null);
 }
 
 // ---------- logs panel ----------
@@ -415,7 +500,7 @@ async function AppPage(v, id, tab) {
             a.restarts ? h('span', null, `${a.restarts} restarts`) : null)),
         h('div', { class: 'actions' },
           running ? h('a', { class: 'btn small', href: lanUrl(a.port), target: '_blank', rel: 'noopener' }, 'Open ↗') : null,
-          action(a.source === 'git' ? 'Redeploy' : 'Apply & restart', 'deploy', 'primary', 'Deploy started'),
+          action(a.source === 'git' || a.catalog ? 'Redeploy' : a.source === 'docker' ? 'Pull & redeploy' : 'Apply & restart', 'deploy', 'primary', 'Deploy started'),
           running || a.status === 'crashed' ? action('Restart', 'restart', '', 'Restarted') : null,
           running || a.status === 'crashed' || a.status === 'deploying'
             ? action('Stop', 'stop', '', 'Stopped')
@@ -432,10 +517,24 @@ async function AppPage(v, id, tab) {
   if (tab === 'env') body = appEnvTab(a);
   else if (tab === 'public') body = appPublicTab(a, refresh);
   else if (tab === 'settings') body = appSettingsTab(a);
-  else body = h('div', null, deployInfo(a), logPanel(id, { onStatus: refresh }));
+  else body = h('div', null, appInfo(a), deployInfo(a), logPanel(id, { onStatus: refresh }));
 
   v.render(h('div', null, head, body));
   every(3000, refresh);
+}
+
+/** Login details and notes for apps installed from the catalog. */
+function appInfo(a) {
+  const c = a.credentials;
+  const notes = a.catalog && a.catalog.notes;
+  if (!c && !notes) return null;
+  const url = lanUrl(a.port) + (c && c.path ? c.path : '');
+  return h('div', { class: 'card', style: 'margin-bottom:14px' },
+    c ? h('div', { class: 'creds' },
+      h('div', null, h('div', { class: 'label' }, 'Open'), h('a', { href: url, target: '_blank', rel: 'noopener' }, url.replace(/^https?:\/\//, '') + ' ↗')),
+      h('div', null, h('div', { class: 'label' }, 'Username'), copyField(c.username)),
+      h('div', null, h('div', { class: 'label' }, 'Password'), copyField(c.password, { secret: true }))) : null,
+    notes ? h('p', { class: 'faint', style: c ? 'margin:12px 0 0' : 'margin:0' }, notes) : null);
 }
 
 function deployInfo(a) {
@@ -508,6 +607,11 @@ function appSettingsTab(a) {
   const build = inp(c.build, 'Auto-detected');
   const start = inp(c.start, a.source === 'git' ? 'Auto-detected' : '');
   const port = inp(a.port, '', 'number');
+  const dk = a.docker || {};
+  const image = inp(dk.image, 'image:tag');
+  const cport = inp(dk.containerPort, 'Same as the port', 'number');
+  const volumes = h('textarea', { spellcheck: 'false', style: 'min-height:70px', placeholder: '/data' }); volumes.value = (dk.volumes || []).join('\n');
+  const dcmd = inp(dk.command, 'Image default');
   const auto = h('input', { type: 'checkbox', checked: a.autoDeploy });
   const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
   const del = h('button', { class: 'btn danger', type: 'button' }, 'Delete app');
@@ -520,7 +624,9 @@ function appSettingsTab(a) {
   const form = h('form', {
     class: 'card',
     onsubmit: busy(btn, async () => {
-      const body = { name: name.value, install: install.value, build: build.value, start: start.value, port: Number(port.value), autoDeploy: auto.checked };
+      const body = { name: name.value, port: Number(port.value), autoDeploy: auto.checked };
+      if (a.source === 'docker') Object.assign(body, { image: image.value, containerPort: cport.value ? Number(cport.value) : null, volumes: volumes.value, command: dcmd.value });
+      else Object.assign(body, { install: install.value, build: build.value, start: start.value });
       if (a.source === 'git') Object.assign(body, { repo: repo.value, branch: branch.value, subdir: subdir.value });
       await api('PATCH', '/apps/' + a.id, body);
       toast('Saved. Changes are applied automatically.', 'ok');
@@ -528,9 +634,14 @@ function appSettingsTab(a) {
   },
   field('Name', name),
   a.source === 'git' ? [field('Repository URL', repo), h('div', { class: 'row' }, field('Branch', branch), field('Folder', subdir))] : null,
-  h('div', { class: 'row' }, field('Install command', install), field('Build command', build)),
-  field('Start command', start),
-  field('Port', port, 'Your app reads this from the PORT environment variable.'),
+  a.source === 'docker' ? [
+    field('Image', image, 'Changing it pulls the new image and recreates the container. Volumes are kept.'),
+    field('Container port', cport, 'The port the app listens on inside the container.'),
+    field('Volumes', volumes, 'Folders inside the container to keep, one per line.'),
+    field('Command', dcmd)] : [
+    h('div', { class: 'row' }, field('Install command', install), a.source === 'git' ? field('Build command', build) : null),
+    field('Start command', start)],
+  field('Port', port, a.source === 'docker' ? 'The port on the phone.' : 'Your app reads this from the PORT environment variable.'),
   a.source === 'git' ? h('label', { class: 'check' }, auto, h('span', null, 'Redeploy automatically when I push', h('small', null, 'Checks for new commits every 2 minutes.'))) : null,
   btn);
   return h('div', { class: 'grid two' }, form,
@@ -539,6 +650,7 @@ function appSettingsTab(a) {
         h('dl', { class: 'kv' },
           h('dt', null, 'App ID'), h('dd', null, h('code', null, a.id)),
           h('dt', null, 'Detected'), h('dd', null, a.type || '—'),
+          h('dt', null, 'Data folder'), h('dd', null, h('code', null, a.dataDir)),
           h('dt', null, 'Created'), h('dd', null, new Date(a.createdAt).toLocaleString()))),
       h('div', { class: 'card danger-zone' }, h('h3', null, 'Danger zone'), h('p', null, 'Stops the app and deletes its code, build files and logs from the phone.'), del)));
 }
