@@ -147,7 +147,14 @@ if ! command -v code-server >/dev/null; then
   pkg install -y tur-repo
   pkg install -y code-server
 fi
-echo "Object.defineProperty(process, 'platform', { get: () => 'linux' });" > "$APP_DATA/android-as-linux.js"`,
+cat > "$APP_DATA/android-as-linux.js" <<'EOF'
+// Make Android look like Linux so VS Code extensions install.
+Object.defineProperty(process, 'platform', { get: () => 'linux' });
+// Some Termux setups launch programs through Android's loader, so Node reports the loader as
+// its own path and can't start child processes. Termux tells us the real path.
+const real = process.env.TERMUX_EXEC__PROC_SELF_EXE;
+if (real && /linker(64)?$/.test(process.execPath) && !/linker(64)?$/.test(real)) process.execPath = real;
+EOF`,
     start: 'NODE_OPTIONS="--require $APP_DATA/android-as-linux.js" exec code-server --bind-addr "0.0.0.0:$PORT" --auth password --disable-telemetry --disable-update-check --user-data-dir "$APP_DATA/user-data" --extensions-dir "$APP_DATA/extensions" "${WORKSPACE:-$HOME}"',
     notes: 'Opens your Termux home folder; set WORKSPACE in Environment to open another folder. Your apps\' code is in ~/.pockethost/apps/<app id>/src (redeploys replace it, so push changes to Git). Uses 300–500 MB of memory. Some extensions with native code may not work on Android.',
   },
