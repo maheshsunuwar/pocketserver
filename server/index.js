@@ -211,12 +211,18 @@ const server = http.createServer(async (req, res) => {
 
 function main() {
   auth.ensurePassword();
-  S.killStale();
   server.on('error', (e) => {
-    console.error(e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use. Is PocketHost already running?` : e.message);
+    if (e.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Is PocketHost already running?`);
+      process.exit(98); // tells the watchdog not to keep retrying
+    }
+    console.error(e.message);
     process.exit(1);
   });
   server.listen(PORT, '0.0.0.0', () => {
+    // Only clean up leftover app processes once we know we're the only PocketHost.
+    // Doing it earlier let a duplicate instance kill the running one's apps.
+    S.killStale();
     const ip = (U.localIPs()[0] || {}).address || 'localhost';
     console.log(`PocketHost ${VERSION} running on http://${ip}:${PORT}`);
     apps.restore();

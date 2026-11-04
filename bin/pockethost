@@ -22,7 +22,7 @@ show_urls() {
 }
 
 cmd_start() {
-  if running; then ok "PocketHost is already running."; show_urls; return; fi
+  if running || [ -n "$(all_pids)" ]; then ok "PocketHost is already running."; show_urls; return; fi
   command -v node >/dev/null || { fail "Node.js is missing. Run: pkg install nodejs-lts"; exit 1; }
   # Keep the CPU awake while the screen is off (Termux).
   command -v termux-wake-lock >/dev/null && termux-wake-lock || true
@@ -46,23 +46,43 @@ cmd_start() {
 cmd__watchdog() {
   local child=""
   trap 'touch "$PH_HOME/stopping"; [ -n "$child" ] && kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 0' TERM INT
+  local code busy=0
   while true; do
     node "$ROOT/server/index.js" &
     child=$!
-    wait "$child" || true
+    code=0; wait "$child" || code=$?
     [ -f "$PH_HOME/stopping" ] && break
+    if [ "$code" = 98 ]; then
+      # Port taken. Usually another PocketHost is still running; give up after a minute.
+      busy=$((busy + 1))
+      if [ "$busy" -ge 20 ]; then echo "$(date '+%F %T') Port still in use, watchdog exiting."; exit 1; fi
+    else
+      busy=0
+    fi
     echo "$(date '+%F %T') PocketHost exited, restarting in 3s…"
     sleep 3
   done
 }
 
+# Every watchdog and server process belonging to this install, even ones the pid file lost track of.
+all_pids() {
+  command -v pgrep >/dev/null || return 0
+  pgrep -f "$ROOT/bin/pockethost _watchdog" || true
+  pgrep -f "$ROOT/server/index.js" || true
+}
+
 cmd_stop() {
-  if ! running; then say "PocketHost isn't running."; rm -f "$PIDFILE"; return; fi
-  local pid; pid="$(cat "$PIDFILE")"
+  local pids; pids="$( (running && cat "$PIDFILE"; all_pids) | sort -u | tr '\n' ' ')"
+  if [ -z "${pids// /}" ]; then say "PocketHost isn't running."; rm -f "$PIDFILE"; return; fi
   touch "$PH_HOME/stopping"
-  kill -TERM "$pid" 2>/dev/null || true
-  for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-  kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+  # shellcheck disable=SC2086
+  kill -TERM $pids 2>/dev/null || true
+  for _ in $(seq 1 30); do
+    local alive=""; for p in $pids; do kill -0 "$p" 2>/dev/null && alive=1; done
+    [ -z "$alive" ] && break; sleep 0.5
+  done
+  # shellcheck disable=SC2086
+  kill -KILL $pids 2>/dev/null || true
   rm -f "$PIDFILE"
   command -v termux-wake-unlock >/dev/null && termux-wake-unlock || true
   ok "PocketHost stopped (your apps were stopped too)."
