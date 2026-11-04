@@ -3,9 +3,10 @@ const { state } = require('./store');
 const { portFree, bad } = require('./util');
 
 function usedPorts(exceptId) {
-  const used = new Set([Number(state.settings.port) || 7777]);
+  const used = new Set([Number(process.env.POCKETHOST_PORT || state.settings.port) || 7777]);
   for (const a of Object.values(state.apps)) if (a.id !== exceptId && a.port) used.add(a.port);
   for (const d of Object.values(state.databases)) if (d.id !== exceptId && d.port) used.add(d.port);
+  if (exceptId !== 'sshd' && state.settings.ssh && state.settings.ssh.port) used.add(state.settings.ssh.port);
   return used;
 }
 

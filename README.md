@@ -16,6 +16,9 @@ That old phone in your drawer has an 8-core CPU, gigabytes of RAM, a battery bac
 - **Auto-deploy on push.** Checks your repo for new commits every 2 minutes, so it works behind any home router. Webhooks for GitHub, GitLab and Gitea are supported too.
 - **Keeps apps running.** Restarts on crash with backoff, brings everything back after a reboot, and shows live logs in the browser.
 - **One-click databases:** PostgreSQL, MariaDB (MySQL) and Redis, with generated passwords and ready-made connection URLs.
+- **Browse and edit your data** in the dashboard: tables, rows and an SQL console for PostgreSQL and MariaDB; keys, hashes, lists and a command box for Redis.
+- **Private repos:** the phone gets its own SSH key. Add it to a repo as a read-only deploy key and deploy with the `git@…` address.
+- **Edit from VS Code:** turn on the built-in SSH server (key logins only) and open the phone's files with the SSH FS extension, or use any terminal.
 - **Free public URLs** through Cloudflare Tunnel. No port forwarding, works on mobile data. You can also use your own domain with HTTPS.
 - **Phone stats:** memory, storage, battery, temperature, and per-app CPU and memory.
 - **Lightweight:** plain Node.js with **zero npm dependencies**. It runs on Android 7+ (arm64, armv7, x86_64) and the dashboard itself uses about 55 MB of RAM.
@@ -43,8 +46,10 @@ Then do the one-time [phone setup](docs/android-setup.md) so Android doesn't put
 
 | Task | How |
 |---|---|
-| Deploy an app | Dashboard → **New app** → paste the Git URL |
-| Private repo | Use `https://<token>@github.com/you/app.git` with a [fine-grained token](https://github.com/settings/tokens?type=beta) (read-only) |
+| Deploy an app | Dashboard → **New app** → paste the GitHub link (or just `you/app`) |
+| Private repo | Settings → **Git access**: add the phone's key to the repo's *Deploy keys*, then deploy `git@github.com:you/app.git` |
+| See or edit data | Database → **Data** (or **Keys** for Redis) |
+| Edit files from VS Code | Settings → **SSH and VS Code**: add your computer's public key, turn on SSH, then connect with the SSH FS extension |
 | Environment variables | App → **Environment** |
 | Share on the internet | App → **Public URL** → *Get a free public URL* |
 | Your own domain | Settings → **Your own domains** (Cloudflare Tunnel token) |

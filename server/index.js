@@ -9,6 +9,9 @@ const auth = require('./auth');
 const S = require('./supervisor');
 const apps = require('./apps');
 const dbs = require('./databases');
+const dbdata = require('./dbdata');
+const sshd = require('./sshd');
+const gitkey = require('./gitkey');
 const tunnels = require('./tunnels');
 const stats = require('./stats');
 const VERSION = require('../package.json').version;
@@ -113,6 +116,15 @@ route('POST', '/api/databases/:id/start', async (req, res, p) => { dbs.one(p.id)
 route('POST', '/api/databases/:id/stop', async (req, res, p) => { await dbs.stop(p.id); return { ok: true }; });
 route('POST', '/api/databases/:id/restart', async (req, res, p) => { dbs.one(p.id); dbs.restart(p.id).catch(() => {}); return { ok: true }; });
 
+// ---------- database data browser ----------
+route('GET', '/api/databases/:id/tables', async (req, res, p) => dbdata.tables(p.id));
+route('GET', '/api/databases/:id/rows', async (req, res, p, b, q) => dbdata.rows(p.id, q));
+route('POST', '/api/databases/:id/rows', async (req, res, p, body) => dbdata.write(p.id, body));
+route('POST', '/api/databases/:id/query', async (req, res, p, body) => dbdata.query(p.id, body));
+route('GET', '/api/databases/:id/keys', async (req, res, p, b, q) => dbdata.redisKeys(p.id, q));
+route('GET', '/api/databases/:id/key', async (req, res, p, b, q) => dbdata.redisGet(p.id, q));
+route('POST', '/api/databases/:id/key', async (req, res, p, body) => dbdata.redisWrite(p.id, body));
+
 // ---------- settings ----------
 route('GET', '/api/settings', async () => ({
   port: PORT,
@@ -128,6 +140,9 @@ route('POST', '/api/settings/password', async (req, res, p, body) => {
   auth.setPassword(body.password);
   send(res, 200, { ok: true }, { 'set-cookie': auth.sessionCookie(auth.createSession()) });
 });
+route('GET', '/api/settings/git-key', async () => ({ publicKey: await gitkey.publicKey() }));
+route('GET', '/api/settings/ssh', async () => ({ ...sshd.view(), ips: U.localIPs() }));
+route('POST', '/api/settings/ssh', async (req, res, p, body) => ({ ...(await sshd.update(body)), ips: U.localIPs() }));
 route('POST', '/api/settings/cloudflare', async (req, res, p, body) => {
   const token = String(body.token || '').trim();
   if (token && !/^[A-Za-z0-9_\-=.]{40,}$/.test(token)) throw U.bad("That doesn't look like a Cloudflare tunnel token.");
@@ -140,7 +155,7 @@ route('POST', '/api/settings/cloudflare', async (req, res, p, body) => {
 // ---------- live logs (Server-Sent Events) ----------
 function logKeyAllowed(key) {
   const id = key.replace(/^tunnel-/, '');
-  return key === 'tunnel-main' || !!state.apps[id] || !!state.databases[id];
+  return key === 'tunnel-main' || key === sshd.KEY || !!state.apps[id] || !!state.databases[id];
 }
 function streamLogs(req, res, key) {
   if (!logKeyAllowed(key)) throw new U.HttpError(404, 'No such log.');
@@ -227,6 +242,7 @@ function main() {
     console.log(`PocketHost ${VERSION} running on http://${ip}:${PORT}`);
     apps.restore();
     dbs.restore();
+    sshd.restore();
     tunnels.applyNamedTunnel().catch((e) => console.error('Named tunnel:', e.message));
   });
 }

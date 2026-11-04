@@ -10,6 +10,7 @@ const { detect, resolveStaticDir } = require('./detect');
 const pkgs = require('./packages');
 const ports = require('./ports');
 const tunnels = require('./tunnels');
+const gitkey = require('./gitkey');
 
 const STATIC_SERVER = path.join(__dirname, 'static-serve.js');
 const POLL_MS = 2 * 60 * 1000;
@@ -58,10 +59,10 @@ function applyInput(a, input, isNew) {
   if (isNew) a.source = input.source === 'command' ? 'command' : 'git';
   if (a.source === 'git') {
     if (isNew || input.repo !== undefined) {
-      const r = String(input.repo || '').trim();
+      const r = gitkey.normalize(input.repo);
       if (!r) throw U.bad('Enter a Git repository URL.');
       if (r.startsWith('-') || /\s/.test(r) || !/^(https?:\/\/|ssh:\/\/|git@|file:\/\/|\/)/.test(r)) {
-        throw U.bad('Use an https:// or git@ repository URL.');
+        throw U.bad('Use a GitHub link, an https:// URL or a git@ SSH URL.');
       }
       if (a.repo !== r) changed.source = true;
       a.repo = r;
@@ -109,11 +110,36 @@ function view(a) {
   };
 }
 
+// Packages without prebuilt Android wheels/binaries get compiled on the phone. When a step fails
+// because a compiler is missing, install it and try once more.
+const TOOLCHAINS = [
+  { bin: 'cargo', name: 'Rust', re: /Rust not found|can't find Rust compiler|cargo: (command )?not found|rustc.*not found|Cargo, the Rust package manager, is not installed/i },
+  { bin: 'clang', name: 'a C compiler', re: /unable to execute '?(clang|gcc|cc)'?|(clang|gcc|cc): (command )?not found|command '(clang|gcc|cc)' failed|No such file or directory: '(cc|gcc|clang)'/i },
+  { bin: 'make', name: 'make', re: /make: (command )?not found|No such file or directory: 'make'/i },
+];
+async function runStep(cmd, label, cwd, env, log) {
+  const tried = new Set();
+  for (;;) {
+    try {
+      return await U.sh(cmd, { cwd, env, onLine: (l) => log(l, 'out'), label, timeout: 60 * 60e3 });
+    } catch (e) {
+      const tc = U.isTermux && TOOLCHAINS.find((t) => !tried.has(t.bin) && t.re.test(e.output || ''));
+      if (!tc) throw e;
+      tried.add(tc.bin);
+      log(`This app needs ${tc.name} to build some of its packages. Installing it (one time, can take a few minutes)…`, 'sys');
+      await pkgs.ensure([tc.bin], (l) => log(l, 'out'));
+      log(`Retrying: ${cmd}`, 'sys');
+    }
+  }
+}
+
 function envFor(a, cwd, plan, runtime) {
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (k.startsWith('POCKETHOST_')) delete env[k];
   env.PORT = String(a.port);
   env.HOST = '0.0.0.0';
+  // Python packages built with Rust (maturin) refuse to build on Android without this.
+  if (U.isTermux && !env.ANDROID_API_LEVEL) env.ANDROID_API_LEVEL = U.getprop('ro.build.version.sdk') || '24';
   if (runtime) env.NODE_ENV = 'production'; // not during install: npm would skip devDependencies needed to build
   if (plan && plan.pathPrefix) {
     env.PATH = path.join(cwd, plan.pathPrefix) + ':' + env.PATH;
@@ -192,7 +218,7 @@ async function deploy(id, reason = 'manual') {
     if (a.source === 'git') {
       await pkgs.ensure(['git'], (l) => log(l, 'out'));
       const src = srcDir(id);
-      const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+      const env = await gitkey.env(a.repo);
       if (a.repoChanged) { fs.rmSync(src, { recursive: true, force: true }); delete a.repoChanged; }
       if (!fs.existsSync(path.join(src, '.git'))) {
         fs.rmSync(src, { recursive: true, force: true });
@@ -201,10 +227,10 @@ async function deploy(id, reason = 'manual') {
         if (a.branch) args.push('--branch', a.branch);
         args.push('--', a.repo, src);
         log(`Cloning ${a.repo}${a.branch ? ` (branch ${a.branch})` : ''}`);
-        await U.run('git', args, { env, onLine: (l) => log(l, 'out'), label: 'git clone', timeout: 15 * 60e3 });
+        await U.run('git', args, { env, onLine: (l) => log(l, 'out'), label: 'git clone', timeout: 15 * 60e3 }).catch((e) => { throw gitkey.explain(e, a.repo); });
       } else {
         log('Pulling the latest code');
-        await U.run('git', ['fetch', '--depth', '1', 'origin', a.branch || 'HEAD'], { cwd: src, env, onLine: (l) => log(l, 'out'), label: 'git fetch', timeout: 15 * 60e3 });
+        await U.run('git', ['fetch', '--depth', '1', 'origin', a.branch || 'HEAD'], { cwd: src, env, onLine: (l) => log(l, 'out'), label: 'git fetch', timeout: 15 * 60e3 }).catch((e) => { throw gitkey.explain(e, a.repo); });
         await U.run('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: src, env, label: 'git reset' });
         await U.run('git', ['clean', '-fdx', '-e', 'node_modules', '-e', '.venv', '-e', 'vendor', '-e', 'target'], { cwd: src, env, label: 'git clean' });
       }
@@ -230,11 +256,11 @@ async function deploy(id, reason = 'manual') {
     const buildEnv = envFor(a, cwd, plan, false);
     if (plan.install) {
       log(`Installing dependencies: ${plan.install}`);
-      await U.sh(plan.install, { cwd, env: buildEnv, onLine: (l) => log(l, 'out'), label: 'Install step' });
+      await runStep(plan.install, 'Install step', cwd, buildEnv, log);
     }
     if (plan.build) {
       log(`Building: ${plan.build}`);
-      await U.sh(plan.build, { cwd, env: buildEnv, onLine: (l) => log(l, 'out'), label: 'Build step' });
+      await runStep(plan.build, 'Build step', cwd, buildEnv, log);
     }
     if (plan.staticDir) {
       const dir = resolveStaticDir(cwd, plan.staticDir);
@@ -354,7 +380,7 @@ async function pollOnce() {
       a.lastPoll = Date.now();
       try {
         const ref = a.branch ? `refs/heads/${a.branch}` : 'HEAD';
-        const out = await U.run('git', ['ls-remote', '--', a.repo, ref], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, timeout: 30000, label: 'git ls-remote' });
+        const out = await U.run('git', ['ls-remote', '--', a.repo, ref], { env: await gitkey.env(a.repo), timeout: 30000, label: 'git ls-remote' });
         const sha = out.split(/\s/)[0];
         if (/^[0-9a-f]{40}$/.test(sha) && sha !== a.attemptedSha) {
           S.log(a.id, `New commit ${sha.slice(0, 7)} found on the remote.`, 'sys');

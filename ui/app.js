@@ -130,7 +130,7 @@ async function router() {
     else if (parts[0] === 'apps' && parts[1] === 'new') NewApp(v);
     else if (parts[0] === 'apps' && parts[1]) await AppPage(v, parts[1], parts[2] || 'logs');
     else if (parts[0] === 'databases' && parts[1] === 'new') NewDatabase(v);
-    else if (parts[0] === 'databases' && parts[1]) await DbPage(v, parts[1]);
+    else if (parts[0] === 'databases' && parts[1]) await DbPage(v, parts[1], parts[2] || 'data');
     else if (parts[0] === 'settings') await Settings(v);
     else go('/');
   } catch (e) {
@@ -278,7 +278,7 @@ async function Dashboard(v) {
 function NewApp(v) {
   let source = 'git';
   const name = h('input', { type: 'text', placeholder: 'my-app', maxlength: 60 });
-  const repo = h('input', { type: 'text', placeholder: 'https://github.com/you/your-app', autocomplete: 'off', spellcheck: 'false' });
+  const repo = h('input', { type: 'text', placeholder: 'https://github.com/you/your-app  or  you/your-app', autocomplete: 'off', spellcheck: 'false' });
   const branch = h('input', { type: 'text', placeholder: 'Default branch' });
   const subdir = h('input', { type: 'text', placeholder: 'Leave empty for the repo root' });
   const install = h('input', { type: 'text', placeholder: 'Auto-detected', spellcheck: 'false' });
@@ -294,7 +294,7 @@ function NewApp(v) {
   name.addEventListener('input', () => { name.dataset.touched = '1'; });
 
   const gitFields = h('div', null,
-    field('Repository URL', repo, 'Public repos work as-is. For a private repo use https://<token>@github.com/you/app.git'),
+    field('Repository', repo, h('span', null, 'A GitHub link, or just ', h('code', null, 'you/app'), '. Private repo? Use its SSH address (', h('code', null, 'git@github.com:you/app.git'), ') and add this phone\'s key in ', h('a', { href: '#/settings' }, 'Settings → Git access'), '.')),
     h('div', { class: 'row' }, field('Branch', branch), field('Folder', subdir, 'For monorepos')));
   const startField = field('Start command', start, 'Your app must listen on the PORT environment variable.');
   const cmdNote = h('p', { class: 'muted' }, 'Run any program that keeps running, like a bot or a binary you copied to the phone. It runs from its own folder.');
@@ -580,7 +580,7 @@ function NewDatabase(v) {
     btn, err)));
 }
 
-async function DbPage(v, id) {
+async function DbPage(v, id, tab) {
   let d = await api('GET', '/databases/' + id);
   const head = h('div');
   const conn = h('div');
@@ -596,9 +596,10 @@ async function DbPage(v, id) {
     toast('Database deleted', 'ok');
     go('/');
   }));
+  let wasRunning = d.status === 'running';
   const drawHead = () => {
     const running = d.status === 'running';
-    fill(head, 
+    fill(head,
       h('a', { class: 'back', href: '#/' }, '← Dashboard'),
       h('div', { class: 'page-head' },
         h('div', null, h('h1', null, d.name), h('div', { class: 'sub' }, statusEl(d.error && !running ? 'failed' : d.status), h('span', { class: 'badge accent' }, d.typeLabel), h('span', null, `port ${d.port}`))),
@@ -606,7 +607,9 @@ async function DbPage(v, id) {
           running ? action('Restart', 'restart', 'Restarting') : null,
           running || d.status === 'starting' || d.status === 'crashed' ? action('Stop', 'stop', 'Stopped') : action('Start', 'start', 'Starting'),
           del)),
-      d.error && !running ? h('div', { class: 'banner' }, d.error) : null);
+      d.error && !running ? h('div', { class: 'banner' }, d.error) : null,
+      h('div', { class: 'tabs' }, [['data', d.type === 'redis' ? 'Keys' : 'Data'], ['connect', 'Connect'], ['logs', 'Logs']]
+        .map(([k, label]) => h('a', { href: `#/databases/${id}/${k}`, class: tab === k ? 'on' : '' }, label))));
   };
   let lastConnKey = '';
   const drawConn = () => {
@@ -622,20 +625,293 @@ async function DbPage(v, id) {
       h('div', { class: 'card' }, h('h3', null, 'Connect from your apps'),
         h('p', null, 'Put this in your app\'s environment, for example as ', h('code', null, d.type === 'redis' ? 'REDIS_URL' : 'DATABASE_URL'), '.'),
         copyField(d.urls.local, { secret: true }),
-        d.urls.lan ? h('div', { style: 'margin-top:14px' }, h('p', null, 'From other devices on your Wi-Fi:'), copyField(d.urls.lan, { secret: true })) : null),
+        d.urls.lan ? h('div', { style: 'margin-top:14px' }, h('p', null, 'From other devices on your Wi-Fi (TablePlus, DBeaver…):'), copyField(d.urls.lan, { secret: true })) : null),
       h('div', { class: 'card' }, h('h3', null, 'Details'),
         h('dl', { class: 'kv' },
           h('dt', null, 'Host'), h('dd', null, h('code', null, '127.0.0.1')),
           h('dt', null, 'Port'), h('dd', null, h('code', null, d.port)),
           d.type !== 'redis' ? [h('dt', null, 'Database'), h('dd', null, h('code', null, d.dbName)), h('dt', null, 'User'), h('dd', null, h('code', null, user))] : null,
           h('dt', null, 'Password'), h('dd', null, copyField(d.password, { secret: true }))),
-        h('label', { class: 'check', style: 'margin:14px 0 0' }, lanToggle, h('span', null, 'Allow connections from other devices on my Wi-Fi', h('small', null, 'Restarts the database.'))))));
+        h('label', { class: 'check', style: 'margin:14px 0 0' }, lanToggle, h('span', null, 'Allow connections from other devices on my Wi-Fi', h('small', null, 'Restarts the database. Needed for desktop apps like TablePlus or DBeaver.'))))));
   };
-  const refresh = async () => { try { const x = await api('GET', '/databases/' + id); if (v.alive()) { d = x; drawHead(); drawConn(); } } catch {} };
+  const body = h('div');
+  const drawBody = () => {
+    if (tab === 'connect') { drawConn(); fill(body, conn); return; }
+    if (tab === 'logs') { fill(body, logPanel(id, { onStatus: refresh })); return; }
+    if (d.status !== 'running' || !d.initialized) {
+      fill(body, h('div', { class: 'empty' }, h('p', null, d.status === 'starting' ? 'The database is starting. Its data appears here once it is running.' : 'Start the database to see its data.')));
+      return;
+    }
+    fill(body, d.type === 'redis' ? redisBrowser(id) : sqlBrowser(id, d));
+  };
+  const refresh = async () => {
+    try {
+      const x = await api('GET', '/databases/' + id);
+      if (!v.alive()) return;
+      d = x; drawHead();
+      if (tab === 'connect') drawConn();
+      const running = d.status === 'running' && d.initialized;
+      if (tab === 'data' && running !== wasRunning) drawBody(); // only redraw the browser when it starts/stops
+      wasRunning = running;
+    } catch {}
+  };
+  wasRunning = d.status === 'running' && d.initialized;
   drawHead();
-  drawConn();
-  v.render(h('div', null, head, conn, h('div', { class: 'section-head' }, h('h2', null, 'Logs')), logPanel(id, { onStatus: refresh })));
+  drawBody();
+  v.render(h('div', null, head, body));
   every(4000, refresh);
+}
+
+// ---------- data browser (PostgreSQL / MariaDB) ----------
+const cellText = (val) => (val === null ? 'NULL' : val.length > 120 ? val.slice(0, 120) + '…' : val);
+
+function sqlBrowser(id, d) {
+  let tables = [];
+  let current = null; // { schema, name, view }
+  let page = { offset: 0, limit: 50 };
+  const list = h('div', { class: 'table-list' }, h('div', { class: 'faint' }, 'Loading…'));
+  const grid = h('div', { class: 'data-main' });
+  const showSchema = () => new Set(tables.map((t) => t.schema)).size > 1;
+  const tname = (t) => (t.schema && showSchema() ? `${t.schema}.${t.name}` : t.name);
+  const qs = () => `table=${encodeURIComponent(current.name)}${current.schema ? '&schema=' + encodeURIComponent(current.schema) : ''}`;
+
+  const loadTables = async () => {
+    tables = await api('GET', `/databases/${id}/tables`);
+    if (current && !tables.some((t) => t.name === current.name && t.schema === current.schema)) current = null;
+    if (!current && tables.length) current = tables[0];
+    drawList();
+    if (current) await loadRows(); else fill(grid, h('div', { class: 'empty' }, h('p', null, 'No tables yet.'), h('p', { class: 'faint' }, 'Create one with SQL below, or let your app create its tables.')));
+  };
+  const drawList = () => fill(list,
+    h('div', { class: 'table-list-head' }, 'Tables', h('button', { class: 'btn ghost small', title: 'Reload', onclick: () => loadTables().catch((e) => toast(e.message, 'error')) }, '↻')),
+    tables.length ? tables.map((t) => h('button', {
+      class: 'table-item' + (current === t ? ' on' : ''),
+      onclick: () => { current = t; page.offset = 0; drawList(); loadRows().catch((e) => toast(e.message, 'error')); },
+    }, tname(t), t.view ? h('span', { class: 'faint' }, ' view') : null)) : h('div', { class: 'faint', style: 'padding:6px 8px' }, 'None'));
+
+  const loadRows = async () => {
+    fill(grid, h('div', { class: 'faint' }, 'Loading…'));
+    const r = await api('GET', `/databases/${id}/rows?${qs()}&limit=${page.limit}&offset=${page.offset}`);
+    drawRows(r);
+  };
+  const drawRows = (r) => {
+    const editable = r.editable && !current.view;
+    const from = r.total ? r.offset + 1 : 0;
+    const to = r.offset + r.rows.length;
+    const nav = h('div', { class: 'data-bar' },
+      h('strong', null, tname(current)),
+      h('span', { class: 'faint' }, `${from}–${to} of ${r.total}`),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small', disabled: r.offset === 0, onclick: () => { page.offset = Math.max(0, r.offset - r.limit); loadRows().catch((e) => toast(e.message, 'error')); } }, '← Prev'),
+      h('button', { class: 'btn small', disabled: to >= r.total, onclick: () => { page.offset = r.offset + r.limit; loadRows().catch((e) => toast(e.message, 'error')); } }, 'Next →'),
+      !current.view ? h('button', { class: 'btn small primary', onclick: () => rowEditor(r.columns, null) }, '+ Add row') : null);
+    const table = h('table', { class: 'data' },
+      h('thead', null, h('tr', null, r.columns.map((c) => h('th', { title: c.type }, c.name, c.pk ? h('span', { class: 'pk' }, ' 🔑') : null, h('small', null, c.type))))),
+      h('tbody', null, r.rows.length ? r.rows.map((row) => h('tr', {
+        class: editable ? 'clickable' : '',
+        onclick: editable ? () => rowEditor(r.columns, row) : null,
+      }, r.columns.map((c) => h('td', { class: row[c.name] === null ? 'null' : '' }, cellText(row[c.name])))))
+        : h('tr', null, h('td', { colspan: r.columns.length, class: 'faint' }, 'No rows.'))));
+    fill(grid, nav,
+      !r.editable && !current.view ? h('div', { class: 'banner info' }, 'This table has no primary key, so rows can only be changed with SQL below.') : null,
+      h('div', { class: 'table-wrap' }, table),
+      editable ? h('p', { class: 'faint', style: 'margin:8px 0 0;font-size:12.5px' }, 'Click a row to edit or delete it.') : null);
+  };
+
+  /** Opens the edit form for a row, or an empty form to add one (row = null). */
+  const rowEditor = (columns, row) => {
+    const isNew = !row;
+    const inputs = columns.map((c) => {
+      const val = row ? row[c.name] : null;
+      const long = c.type && /text|json|char\(\d{3,}|xml|array|\[\]|blob/i.test(c.type) || (val && (val.length > 60 || val.includes('\n')));
+      const input = long ? h('textarea', { spellcheck: 'false', style: 'min-height:80px' }) : h('input', { type: 'text', spellcheck: 'false' });
+      input.value = val ?? '';
+      // New rows: empty + "default" means the column is left out so the database fills it in.
+      const hasDefault = isNew && (c.default != null || c.auto || c.nullable);
+      const nullBox = h('input', { type: 'checkbox', checked: isNew ? hasDefault : val === null });
+      const sync = () => { input.disabled = nullBox.checked; };
+      nullBox.addEventListener('change', sync); sync();
+      const label = isNew ? (c.default != null || c.auto ? 'default' : 'NULL') : 'NULL';
+      const showBox = isNew ? hasDefault : c.nullable;
+      return { c, input, nullBox, showBox, el: h('div', { class: 'field' },
+        h('label', null, c.name, ' ', h('span', { class: 'faint', style: 'font-weight:400' }, c.type), c.pk ? h('span', { class: 'faint' }, ' · primary key') : null),
+        input,
+        showBox ? h('label', { class: 'check', style: 'margin:6px 0 0' }, nullBox, h('span', null, label)) : null) };
+    });
+    const save = h('button', { class: 'btn primary', type: 'submit' }, isNew ? 'Add row' : 'Save');
+    const remove = isNew ? null : h('button', { class: 'btn danger', type: 'button' }, 'Delete row');
+    const key = {};
+    if (row) for (const c of columns.filter((x) => x.pk)) key[c.name] = row[c.name];
+    const base = { table: current.name, schema: current.schema };
+    const close = openModal(h('form', {
+      onsubmit: busy(save, async () => {
+        const values = {};
+        for (const f of inputs) {
+          const next = f.showBox && f.nullBox.checked ? null : f.input.value;
+          if (isNew) { if (!(f.showBox && f.nullBox.checked)) values[f.c.name] = next; } else if (next !== row[f.c.name]) values[f.c.name] = next;
+        }
+        if (!isNew && !Object.keys(values).length) { close(); return; }
+        await api('POST', `/databases/${id}/rows`, isNew ? { ...base, op: 'insert', values } : { ...base, op: 'update', key, values });
+        toast(isNew ? 'Row added' : 'Saved', 'ok');
+        close();
+        await loadRows();
+      }),
+    },
+    h('h3', null, isNew ? `Add a row to ${current.name}` : `Edit row in ${current.name}`),
+    inputs.map((f) => f.el),
+    h('div', { class: 'form-actions' }, save, h('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'), h('span', { class: 'spacer' }), remove)));
+    if (remove) remove.addEventListener('click', busy(remove, async () => {
+      if (!confirm('Delete this row? This can\'t be undone.')) return;
+      await api('POST', `/databases/${id}/rows`, { ...base, op: 'delete', key });
+      toast('Row deleted', 'ok');
+      close();
+      await loadRows();
+    }));
+  };
+
+  // SQL console
+  const sql = h('textarea', { spellcheck: 'false', placeholder: d.type === 'postgres' ? 'select * from users limit 10;' : 'SELECT * FROM users LIMIT 10;', style: 'min-height:90px' });
+  const out = h('div');
+  const run = h('button', { class: 'btn primary small', type: 'submit' }, 'Run');
+  const runSql = busy(run, async () => {
+    fill(out, h('div', { class: 'faint' }, 'Running…'));
+    try {
+      const r = await api('POST', `/databases/${id}/query`, { sql: sql.value });
+      fill(out,
+        r.message ? h('div', { class: 'faint', style: 'margin-bottom:6px' }, r.message) : null,
+        r.columns && r.columns.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
+          h('thead', null, h('tr', null, r.columns.map((c) => h('th', null, c)))),
+          h('tbody', null, r.rows.map((row) => h('tr', null, row.map((x) => h('td', { class: x === null ? 'null' : '' }, cellText(x)))))))) : null,
+        r.truncated ? h('div', { class: 'faint' }, 'Showing the first 1000 rows.') : null);
+      if (/\b(create|drop|alter|rename)\b/i.test(sql.value)) await loadTables(); else if (current && /\b(insert|update|delete|truncate)\b/i.test(sql.value)) await loadRows();
+    } catch (e) { fill(out, h('pre', { class: 'sql-error' }, e.message)); }
+  });
+  sql.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runSql(e); });
+  const consoleCard = h('form', { class: 'card', style: 'margin-top:16px', onsubmit: runSql },
+    h('div', { class: 'data-bar' }, h('strong', null, 'SQL'), h('span', { class: 'faint' }, `runs on ${d.dbName} · Ctrl/⌘ + Enter`), h('span', { class: 'spacer' }), run),
+    sql, h('div', { style: 'margin-top:10px' }, out));
+
+  loadTables().catch((e) => fill(grid, h('div', { class: 'banner' }, e.message)));
+  return h('div', null, h('div', { class: 'data-layout' }, list, h('div', { class: 'card data-card' }, grid)), consoleCard);
+}
+
+function openModal(content) {
+  const box = h('div', { class: 'modal card' }, content);
+  const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(); } }, box);
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  function close() { overlay.remove(); document.removeEventListener('keydown', onKey); }
+  document.addEventListener('keydown', onKey);
+  onCleanup(close);
+  document.body.append(overlay);
+  setTimeout(() => { const f = box.querySelector('input:not([disabled]), textarea:not([disabled])'); if (f) f.focus(); }, 30);
+  return close;
+}
+
+// ---------- Redis browser ----------
+function redisBrowser(id) {
+  let keys = []; let cursor = null; let total = 0; let selected = null;
+  const match = h('input', { type: 'text', placeholder: 'Filter, e.g. user:*', spellcheck: 'false' });
+  const list = h('div', { class: 'key-list' });
+  const detail = h('div', { class: 'data-main' }, h('div', { class: 'faint' }, 'Pick a key to see its value.'));
+
+  const load = async (more = false) => {
+    const r = await api('GET', `/databases/${id}/keys?match=${encodeURIComponent(match.value || '*')}&cursor=${more ? cursor : '0'}`);
+    keys = more ? [...keys, ...r.keys] : r.keys;
+    cursor = r.cursor; total = r.total;
+    drawList();
+  };
+  const drawList = () => fill(list,
+    h('div', { class: 'table-list-head' }, `${total} key${total === 1 ? '' : 's'}`, h('button', { class: 'btn ghost small', title: 'Reload', onclick: () => load().catch((e) => toast(e.message, 'error')) }, '↻')),
+    keys.map((k) => h('button', { class: 'table-item' + (selected === k.name ? ' on' : ''), onclick: () => openKey(k.name) },
+      h('span', { class: 'key-name' }, k.name), h('span', { class: 'badge' }, k.type))),
+    cursor ? h('button', { class: 'btn ghost small', style: 'width:100%', onclick: () => load(true).catch((e) => toast(e.message, 'error')) }, 'Load more') : null,
+    !keys.length ? h('div', { class: 'faint', style: 'padding:6px 8px' }, 'No keys found.') : null);
+
+  const openKey = async (name) => {
+    selected = name; drawList();
+    let k;
+    try { k = await api('GET', `/databases/${id}/key?key=${encodeURIComponent(name)}`); } catch (e) { toast(e.message, 'error'); return; }
+    const delBtn = h('button', { class: 'btn small danger' }, 'Delete key');
+    delBtn.addEventListener('click', busy(delBtn, async () => {
+      if (!confirm(`Delete "${name}"?`)) return;
+      await api('POST', `/databases/${id}/key`, { key: name, op: 'del' });
+      toast('Deleted', 'ok'); selected = null; fill(detail, h('div', { class: 'faint' }, 'Pick a key to see its value.')); await load();
+    }));
+    const head = h('div', { class: 'data-bar' }, h('strong', { class: 'key-name' }, name), h('span', { class: 'badge accent' }, k.type),
+      k.length != null ? h('span', { class: 'faint' }, `${k.length} items`) : null,
+      h('span', { class: 'faint' }, k.ttl != null ? `expires in ${duration(k.ttl)}` : 'no expiry'), h('span', { class: 'spacer' }), delBtn);
+    let bodyEl;
+    if (k.type === 'string') bodyEl = stringEditor(name, k.value, k.ttl);
+    else if (k.type === 'hash') bodyEl = hashEditor(name, k.value);
+    else if (Array.isArray(k.value)) {
+      bodyEl = h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
+        h('thead', null, h('tr', null, k.type === 'zset' ? [h('th', null, 'member'), h('th', null, 'score')] : [h('th', null, '#'), h('th', null, 'value')])),
+        h('tbody', null, k.value.map((x, i) => h('tr', null, k.type === 'zset' ? [h('td', null, cellText(x[0])), h('td', null, x[1])] : [h('td', { class: 'faint' }, i), h('td', null, cellText(x))])))));
+      bodyEl = h('div', null, bodyEl, k.length > k.value.length ? h('p', { class: 'faint' }, `Showing ${k.value.length} of ${k.length}. Use a command below to see more.`) : null);
+    } else bodyEl = h('p', { class: 'muted' }, `Viewing ${k.type} keys isn't supported here yet. Use a command below.`);
+    fill(detail, head, bodyEl);
+  };
+
+  const stringEditor = (name, value, ttl) => {
+    const ta = h('textarea', { spellcheck: 'false', style: 'min-height:160px' }); ta.value = value ?? '';
+    const ttlIn = h('input', { type: 'number', min: 0, placeholder: 'No expiry', value: ttl ?? '' });
+    const save = h('button', { class: 'btn primary small', type: 'submit' }, 'Save');
+    return h('form', { onsubmit: busy(save, async () => {
+      await api('POST', `/databases/${id}/key`, { key: name, op: 'set', value: ta.value, ttl: ttlIn.value ? Number(ttlIn.value) : 0 });
+      toast('Saved', 'ok'); await openKey(name);
+    }) }, ta, h('div', { class: 'row', style: 'margin-top:10px;align-items:end' }, field('Expire after (seconds)', ttlIn), h('div', { class: 'field' }, save)));
+  };
+
+  const hashEditor = (name, pairs) => {
+    const fieldIn = h('input', { type: 'text', placeholder: 'field', spellcheck: 'false' });
+    const valIn = h('input', { type: 'text', placeholder: 'value', spellcheck: 'false' });
+    const add = h('button', { class: 'btn small primary', type: 'submit' }, 'Set field');
+    const rows = pairs.map(([f, val]) => {
+      const rm = h('button', { class: 'btn ghost small', type: 'button', title: 'Delete field' }, '✕');
+      rm.addEventListener('click', busy(rm, async () => { await api('POST', `/databases/${id}/key`, { key: name, op: 'hdel', field: f }); await openKey(name); }));
+      return h('tr', { class: 'clickable', onclick: (e) => { if (e.target === rm) return; fieldIn.value = f; valIn.value = val; valIn.focus(); } },
+        h('td', null, cellText(f)), h('td', null, cellText(val)), h('td', { style: 'width:1%' }, rm));
+    });
+    return h('div', null,
+      h('div', { class: 'table-wrap' }, h('table', { class: 'data' }, h('thead', null, h('tr', null, h('th', null, 'field'), h('th', null, 'value'), h('th', null, ''))), h('tbody', null, rows))),
+      h('form', { class: 'row', style: 'margin-top:10px;align-items:center', onsubmit: busy(add, async () => {
+        await api('POST', `/databases/${id}/key`, { key: name, op: 'hset', field: fieldIn.value, value: valIn.value });
+        toast('Saved', 'ok'); await openKey(name);
+      }) }, fieldIn, valIn, add),
+      h('p', { class: 'faint', style: 'font-size:12.5px;margin-top:6px' }, 'Click a field to edit it.'));
+  };
+
+  const newKey = h('button', { class: 'btn small primary' }, '+ New key');
+  newKey.addEventListener('click', () => {
+    const name = h('input', { type: 'text', placeholder: 'my:key', spellcheck: 'false' });
+    const value = h('textarea', { spellcheck: 'false', style: 'min-height:100px' });
+    const save = h('button', { class: 'btn primary', type: 'submit' }, 'Create');
+    const close = openModal(h('form', { onsubmit: busy(save, async () => {
+      await api('POST', `/databases/${id}/key`, { key: name.value, op: 'set', value: value.value });
+      toast('Key created', 'ok'); close(); await load(); await openKey(name.value);
+    }) }, h('h3', null, 'New string key'), field('Name', name), field('Value', value),
+    h('div', { class: 'form-actions' }, save, h('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'))));
+  });
+
+  // Command console
+  const cmd = h('input', { type: 'text', placeholder: 'e.g. GET user:1   or   KEYS *', spellcheck: 'false', class: 'mono' });
+  const out = h('div');
+  const run = h('button', { class: 'btn primary small', type: 'submit' }, 'Run');
+  const consoleCard = h('form', { class: 'card', style: 'margin-top:16px', onsubmit: busy(run, async () => {
+    try {
+      const r = await api('POST', `/databases/${id}/query`, { sql: cmd.value });
+      fill(out, h('pre', { class: 'reply' }, typeof r.reply === 'string' ? r.reply : JSON.stringify(r.reply, null, 2)));
+      await load();
+    } catch (e) { fill(out, h('pre', { class: 'sql-error' }, e.message)); }
+  }) }, h('div', { class: 'data-bar' }, h('strong', null, 'Command'), h('span', { class: 'faint' }, 'any Redis command'), h('span', { class: 'spacer' }), run), cmd, h('div', { style: 'margin-top:10px' }, out));
+
+  let t;
+  match.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => load().catch((e) => toast(e.message, 'error')), 300); });
+  load().catch((e) => fill(detail, h('div', { class: 'banner' }, e.message)));
+  return h('div', null,
+    h('div', { class: 'data-bar', style: 'margin-bottom:12px' }, h('div', { style: 'flex:1;max-width:360px' }, match), h('span', { class: 'spacer' }), newKey),
+    h('div', { class: 'data-layout' }, list, h('div', { class: 'card data-card' }, detail)),
+    consoleCard);
 }
 
 // ---------- settings ----------
@@ -698,7 +974,58 @@ async function Settings(v) {
 
   v.render(h('div', null,
     h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Settings'))),
-    h('div', { class: 'grid two' }, h('div', null, pwForm, cfForm), h('div', null, phone, about))));
+    h('div', { class: 'grid two' }, h('div', null, sshCard(), pwForm, cfForm), h('div', null, gitCard(), phone, about))));
+}
+
+function gitCard() {
+  const box = h('div', null, h('p', { class: 'faint' }, 'Loading…'));
+  api('GET', '/settings/git-key').then((r) => fill(box,
+    copyField(r.publicKey),
+    h('ol', { class: 'steps', style: 'margin-top:14px' },
+      h('li', null, 'On GitHub, open your repository → ', h('strong', null, 'Settings → Deploy keys → Add deploy key'), '. (GitLab: Settings → Repository → Deploy keys.)'),
+      h('li', null, 'Paste the key above. Leave "Allow write access" off.'),
+      h('li', null, 'Deploy using the SSH address, like ', h('code', null, 'git@github.com:you/app.git'), '.')),
+    h('p', { class: 'faint', style: 'margin:0' }, 'Public repos need none of this: paste the link, or just ', h('code', null, 'you/app'), '.'))).catch((e) => fill(box, h('p', { class: 'error-text' }, e.message)));
+  return h('div', { class: 'card' }, h('h3', { id: 'git' }, 'Git access (private repos)'),
+    h('p', null, 'This phone has its own SSH key. Add it to a private repository once, and PocketHost can deploy it and pick up new commits.'),
+    box);
+}
+
+function sshCard() {
+  const box = h('div', null, h('p', { class: 'faint' }, 'Loading…'));
+  const draw = (st) => {
+    const ip = (st.ips[0] || {}).address || location.hostname;
+    const keyIn = h('textarea', { spellcheck: 'false', placeholder: 'ssh-ed25519 AAAA… you@laptop', style: 'min-height:70px' });
+    const addBtn = h('button', { class: 'btn small', type: 'submit' }, 'Add key');
+    const toggle = h('button', { class: 'btn ' + (st.enabled ? '' : 'primary') }, st.enabled ? 'Turn off SSH' : 'Turn on SSH');
+    toggle.addEventListener('click', busy(toggle, async () => { draw(await api('POST', '/settings/ssh', { enabled: !st.enabled })); toast(st.enabled ? 'SSH turned off' : 'SSH is on', 'ok'); }));
+    const sshCmd = `ssh -p ${st.port} ${st.user}@${ip}`;
+    const sshConfig = `Host pockethost\n  HostName ${ip}\n  Port ${st.port}\n  User ${st.user}`;
+    fill(box,
+      h('p', null, 'Open a terminal on the phone, or edit your apps\' files from VS Code on your computer. Logins use SSH keys only, never passwords.'),
+      h('div', { class: 'field' }, h('label', null, 'Computers allowed to log in'),
+        st.keys.length ? h('div', { class: 'key-rows' }, st.keys.map((k) => {
+          const rm = h('button', { class: 'btn ghost small', title: 'Remove' }, 'Remove');
+          rm.addEventListener('click', busy(rm, async () => { if (!confirm(`Remove ${k.comment || k.fingerprint}?`)) return; draw(await api('POST', '/settings/ssh', { removeKey: k.fingerprint })); }));
+          return h('div', { class: 'key-row' }, h('div', null, h('strong', null, k.comment || k.type), h('div', { class: 'faint mono' }, k.fingerprint)), rm);
+        })) : h('p', { class: 'faint', style: 'margin:0' }, 'None yet.')),
+      h('form', { onsubmit: busy(addBtn, async () => { draw(await api('POST', '/settings/ssh', { addKey: keyIn.value })); toast('Key added', 'ok'); }) },
+        field('Add your computer\'s public key', keyIn, h('span', null, 'On a Mac or Linux, copy it with ', h('code', null, 'pbcopy < ~/.ssh/id_ed25519.pub'), '. No key yet? Run ', h('code', null, 'ssh-keygen -t ed25519'), ' first.')),
+        addBtn),
+      h('div', { style: 'margin:16px 0' }, st.enabled ? h('p', null, 'Status: ', statusEl(st.status), ' on port ', h('code', null, st.port)) : null, toggle),
+      st.enabled ? h('div', null,
+        h('h4', null, 'Terminal'), copyField(sshCmd),
+        h('h4', null, 'VS Code'),
+        h('ol', { class: 'steps' },
+          h('li', null, 'Add this to ', h('code', null, '~/.ssh/config'), ' on your computer:', h('pre', { class: 'reply', style: 'margin-top:6px' }, sshConfig)),
+          h('li', null, 'In VS Code, install the ', h('strong', null, 'SSH FS'), ' extension (by Kelvin Schoofs).'),
+          h('li', null, 'Run ', h('strong', null, 'SSH FS: Create a SSH FS configuration'), ', set host ', h('code', null, 'pockethost'), ' and root ', h('code', null, st.appsDir), ', then connect.')),
+        h('p', { class: 'faint' }, 'Your apps\' code is in ', h('code', null, st.appsDir + '/<app id>/src'), '. Edits there are overwritten by the next deploy, so commit and push your changes for anything you want to keep. VS Code\'s own "Remote - SSH" doesn\'t support Android, which is why SSH FS is used.'),
+        st.hostFingerprint ? h('p', { class: 'faint', style: 'margin:0' }, 'Phone\'s fingerprint, to check on first connect: ', h('code', null, st.hostFingerprint)) : null,
+        h('details', { class: 'advanced', style: 'margin-top:10px' }, h('summary', null, 'SSH logs'), logPanel('sshd'))) : null);
+  };
+  api('GET', '/settings/ssh').then(draw).catch((e) => fill(box, h('p', { class: 'error-text' }, e.message)));
+  return h('div', { class: 'card' }, h('h3', null, 'SSH and VS Code'), box);
 }
 
 // ---------- boot ----------

@@ -35,6 +35,9 @@ POCKETHOST_SRC=/path/to/your/checkout bash install.sh   # inside Termux
 | `server/detect.js` | Figures out install/build/start commands from a repo |
 | `server/supervisor.js` | Runs processes, restarts on crash, stores logs |
 | `server/databases.js` | PostgreSQL / MariaDB / Redis |
+| `server/dbdata.js` | Data browser: tables, rows, SQL console, Redis keys |
+| `server/gitkey.js` | The phone's SSH key for private repos |
+| `server/sshd.js` | Optional SSH server for terminals and VS Code |
 | `server/tunnels.js` | Cloudflare quick tunnels and named tunnels |
 | `server/stats.js` | Phone stats with Android-safe fallbacks |
 | `ui/app.js` | The dashboard |
