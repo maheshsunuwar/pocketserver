@@ -115,17 +115,22 @@ function battery() {
   return null;
 }
 function temperature() {
-  let max = null;
+  // Zones normally report millidegrees (45000 = 45 °C). Some phones also have zones with small raw
+  // numbers that aren't degrees (a OnePlus reports a constant 100), so when any zone uses
+  // millidegrees, the others are ignored.
+  const milli = []; const plain = [];
   try {
     for (const z of fs.readdirSync('/sys/class/thermal')) {
       if (!z.startsWith('thermal_zone')) continue;
       const type = readStr(`/sys/class/thermal/${z}/type`) || '';
       if (!/cpu|soc|tsens|apc/i.test(type)) continue;
       const t = readNum(`/sys/class/thermal/${z}/temp`);
-      if (t !== null && t > 0) { const c = t > 1000 ? t / 1000 : t; if (c < 150 && (max === null || c > max)) max = c; }
+      if (t === null || t <= 0) continue;
+      if (t > 1000) milli.push(t / 1000); else plain.push(t);
     }
   } catch {}
-  return max;
+  const ok = (milli.length ? milli : plain).filter((c) => c > 5 && c < 130);
+  return ok.length ? Math.max(...ok) : null;
 }
 
 // ---- per-process usage (only our own processes are visible on Android, which is all we need) ----

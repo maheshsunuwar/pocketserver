@@ -1,5 +1,5 @@
 // Take screenshots of dashboard pages with a headless Chrome-family browser. No npm packages.
-//   node dev/screenshot.mjs --base http://127.0.0.1:7799 --password XXX --out shots --width 390 apps databases '#/settings'
+//   node dev/screenshot.mjs --base http://127.0.0.1:7799 --password XXX --out shots --width 390 --theme dark apps databases '#/settings'
 // Each page is a hash route (without '#/'). Add '!!<js>' to run JavaScript on the page before the shot,
 // e.g. 'apps/new!!document.querySelector("button").click()'.
 // Uses PH_BROWSER if set, otherwise the first Chrome/Chromium/Brave/Edge it finds.
@@ -14,6 +14,7 @@ const opt = (name, def) => { const i = args.indexOf(`--${name}`); return i < 0 ?
 const base = opt('base', 'http://127.0.0.1:7799').replace(/\/$/, '');
 const out = path.resolve(opt('out', 'shots'));
 const width = Number(opt('width', '1280'));
+const theme = opt('theme', ''); // 'dark' or 'light'; default follows the system
 let password = opt('password', process.env.PH_PASSWORD);
 if (!password) try { password = fs.readFileSync(new URL('../.dev-data/initial-password', import.meta.url), 'utf8').trim(); } catch {}
 const pages = args.length ? args : [''];
@@ -35,11 +36,17 @@ const port = 9300 + Math.floor(Math.random() * 500);
 const browser = spawn(browserPath, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
   '--no-first-run', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const done = (code) => { browser.kill(); fs.rmSync(profile, { recursive: true, force: true }); process.exit(code); };
+const done = async (code) => {
+  const exited = new Promise((r) => browser.once('exit', r));
+  browser.kill();
+  await Promise.race([exited, sleep(3000)]);
+  try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+  process.exit(code);
+};
 
 let targets;
 for (let i = 0; i < 40 && !targets; i++) { try { targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); } catch { await sleep(250); } }
-if (!targets) { console.error('The browser did not start.'); done(1); }
+if (!targets) { console.error('The browser did not start.'); await done(1); }
 const ws = new WebSocket(targets.find((t) => t.type === 'page').webSocketDebuggerUrl);
 await new Promise((r) => ws.addEventListener('open', r));
 
@@ -54,13 +61,14 @@ ws.addEventListener('message', (e) => {
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const shot = async (name) => {
   const r = await send('Page.captureScreenshot', { format: 'png' });
-  const file = path.join(out, `w${width}-${name}.png`);
+  const file = path.join(out, `w${width}${theme ? '-' + theme : ''}-${name}.png`);
   fs.writeFileSync(file, Buffer.from(r.result.data, 'base64'));
   console.log('saved', file);
 };
 
 await send('Runtime.enable');
 const mobile = width < 600;
+if (theme) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
 await send('Emulation.setDeviceMetricsOverride', { width, height: mobile ? 900 : 1000, deviceScaleFactor: mobile ? 2 : 1, mobile });
 await send('Page.navigate', { url: base + '/' }); await sleep(1500);
 if (password) {
@@ -81,4 +89,4 @@ for (const [n, entry] of pages.entries()) {
   await shot((hash.replace(/\W+/g, '_') || 'home') + (js ? `-${n}` : ''));
 }
 ws.close();
-done(errors ? 1 : 0);
+await done(errors ? 1 : 0);

@@ -42,7 +42,46 @@ async function api(method, url, body) {
 function toast(msg, kind = '') {
   const t = h('div', { class: 'toast ' + kind }, msg);
   document.getElementById('toasts').append(t);
-  setTimeout(() => t.remove(), kind === 'error' ? 6000 : 3500);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 220); }, kind === 'error' ? 6000 : 3500);
+}
+
+// Line icons, drawn on a 24px grid.
+const ICONS = {
+  plus: 'M12 5v14M5 12h14',
+  out: 'M7 17 17 7M8 7h9v9',
+  right: 'm9 6 6 6-6 6',
+  left: 'm15 6-6 6 6 6',
+  refresh: 'M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5',
+  logout: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4',
+  home: 'M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z',
+  gear: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+  search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',
+  db: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+  deploy: 'M12 15V4M7 9l5-5 5 5M5 20h14',
+  play: 'M8 5.5v13l10.5-6.5z',
+  stop: 'M7 7h10v10H7z',
+  restart: 'M4 12a8 8 0 1 0 2.34-5.66M4 4v5h5',
+  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3',
+  box: 'M12 3 4 7v10l8 4 8-4V7zM4 7l8 4 8-4M12 11v10',
+  terminal: 'M5 17l5-5-5-5M12 19h7',
+};
+function icon(name, cls = '') {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'i ' + cls);
+  svg.setAttribute('aria-hidden', 'true');
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', ICONS[name]);
+  svg.append(p);
+  return svg;
+}
+/** Colored letter tile for an app or database. The color comes from the name, so it stays the same. */
+function monogram(name, { large = false, glyph = null } = {}) {
+  let n = 0;
+  for (const ch of String(name)) n = (n * 31 + ch.codePointAt(0)) >>> 0;
+  const letters = String(name).replace(/[^\p{L}\p{N} ]/gu, '').trim().split(/\s+/);
+  const text = letters.length > 1 && letters[1] ? letters[0][0] + letters[1][0] : (letters[0] || '?').slice(0, 1);
+  return h('span', { class: 'mono-icon' + (large ? ' lg' : ''), style: `--h:${n % 360}`, 'aria-hidden': 'true' }, glyph ? icon(glyph) : text);
 }
 
 const bytes = (n) => {
@@ -99,7 +138,9 @@ function busy(btn, fn) {
   return async (e) => {
     if (e) e.preventDefault();
     btn.disabled = true;
-    try { await fn(); } catch (err) { if (err.message !== 'Please log in.') toast(err.message, 'error'); } finally { btn.disabled = false; }
+    // Only show a spinner if it takes a moment, so quick actions don't flicker.
+    const spin = setTimeout(() => btn.classList.add('loading'), 250);
+    try { await fn(); } catch (err) { if (err.message !== 'Please log in.') toast(err.message, 'error'); } finally { clearTimeout(spin); btn.classList.remove('loading'); btn.disabled = false; }
   };
 }
 
@@ -144,11 +185,12 @@ function showShell() {
   shellShown = true;
   fill(document.getElementById('app'),
     h('header', { class: 'topbar' },
-      h('a', { class: 'brand', href: '#/' }, h('img', { src: 'icon.svg', alt: '' }), 'PocketServer', h('small', { id: 'device-name' })),
+      h('a', { class: 'brand', href: '#/' }, h('img', { src: 'icon.svg', alt: '' }), 'PocketServer'),
+      h('span', { class: 'device-chip', id: 'device-name', title: 'Online' }),
       h('nav', { class: 'nav' },
-        h('a', { href: '#/', 'data-r': 'home' }, 'Dashboard'),
-        h('a', { href: '#/settings', 'data-r': 'settings' }, 'Settings'),
-        h('button', { onclick: async () => { await api('POST', '/logout').catch(() => {}); showLogin(); } }, 'Log out'))),
+        h('a', { href: '#/', 'data-r': 'home', title: 'Dashboard' }, icon('home'), h('span', null, 'Dashboard')),
+        h('a', { href: '#/settings', 'data-r': 'settings', title: 'Settings' }, icon('gear'), h('span', null, 'Settings')),
+        h('button', { title: 'Log out', onclick: async () => { await api('POST', '/logout').catch(() => {}); showLogin(); } }, icon('logout'), h('span', null, 'Log out')))),
     h('main', { id: 'main' }));
   api('GET', '/settings').then((st) => { const el = document.getElementById('device-name'); if (el) el.textContent = st.device.name; }).catch(() => {});
 }
@@ -158,9 +200,9 @@ function showLogin() {
   cleanups = [];
   routeToken++;
   shellShown = false;
-  const pw = h('input', { type: 'password', placeholder: 'Password', autocomplete: 'current-password', autofocus: true });
+  const pw = h('input', { type: 'password', placeholder: 'Dashboard password', autocomplete: 'current-password', autofocus: true });
   const err = h('div', { class: 'error-text' });
-  const btn = h('button', { class: 'btn primary', style: 'width:100%', type: 'submit' }, 'Log in');
+  const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Log in');
   const form = h('form', {
     onsubmit: busy(btn, async () => {
       err.textContent = '';
@@ -170,105 +212,159 @@ function showLogin() {
         router();
       } catch (e) { err.textContent = e.message; pw.select(); }
     }),
-  }, field('Password', pw), btn, err);
+  }, h('div', { class: 'field' }, pw), btn, err);
   fill(document.getElementById('app'),
-    h('div', { class: 'login' }, h('div', { class: 'card' },
+    h('div', { class: 'login' }, h('div', { class: 'login-box' },
       h('div', { class: 'brand' }, h('img', { src: 'icon.svg', alt: '' }), 'PocketServer'),
-      h('p', { class: 'muted' }, 'Your phone, your server.'),
+      h('h1', null, 'Welcome back'),
+      h('p', { class: 'lead' }, 'Log in to manage the apps on this phone.'),
       form,
-      h('p', { class: 'faint', style: 'font-size:12.5px;margin:6px 0 0' }, 'Forgot it? Run ', h('code', null, 'pocketserver password'), ' in Termux.'))));
+      h('p', { class: 'foot' }, 'Forgot it? Run ', h('code', null, 'pocketserver password'), ' in Termux.'))));
   setTimeout(() => pw.focus(), 50);
 }
 
 // ---------- dashboard ----------
-function statCard(label, value, unit, hint, pct, tone) {
-  return h('div', { class: 'card stat' },
+// Recent CPU and memory readings for the sparklines. Kept across page changes.
+const HIST = { cpu: [], mem: [] };
+const HIST_LEN = 40;
+function remember(key, value) {
+  if (value == null || Number.isNaN(value)) return;
+  HIST[key].push(value);
+  if (HIST[key].length > HIST_LEN) HIST[key].shift();
+}
+
+let sparkId = 0;
+function sparkline(values) {
+  if (values.length < 2) return h('div', { class: 'spark' }); // keeps the panel even until there's data
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = 100, H = 26;
+  // Zoom in on the recent range so small changes are visible, but never past 0–100.
+  const lo = Math.max(0, Math.min(...values) - 8);
+  const hi = Math.min(100, Math.max(...values) + 8);
+  const span = Math.max(hi - lo, 10);
+  const step = W / (values.length - 1);
+  const pts = values.map((v, i) => [i * step, H - 2 - ((v - lo) / span) * (H - 4)]);
+  const line = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${y.toFixed(2)}`).join('');
+  const el = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+  const id = 'spark' + (++sparkId);
+  const svg = el('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+  const grad = el('linearGradient', { id, x1: 0, y1: 0, x2: 0, y2: 1 });
+  grad.append(el('stop', { offset: 0, class: 'g0' }), el('stop', { offset: 1, class: 'g1' }));
+  const defs = el('defs', {});
+  defs.append(grad);
+  svg.append(defs, el('path', { class: 'area', d: `${line}L${W} ${H}L0 ${H}Z`, fill: `url(#${id})` }), el('path', { class: 'line', d: line }));
+  return svg;
+}
+
+function meter(label, value, unit, hint, { pct = null, tone = '', spark = null } = {}) {
+  return h('div', { class: 'meter' },
     h('div', { class: 'label' }, label),
     h('div', { class: 'value' }, value, unit ? h('small', null, unit) : null),
     h('div', { class: 'hint', title: hint || '' }, hint || ' '),
-    pct != null ? h('div', { class: 'bar ' + (tone || '') }, h('i', { style: `width:${Math.max(2, Math.min(100, pct))}%` })) : null);
+    spark ? sparkline(spark)
+      : pct != null ? h('div', { class: 'track ' + tone }, h('i', { style: `width:${Math.max(2, Math.min(100, pct))}%` })) : null);
 }
 
-function statCards(s) {
-  const cards = [];
-  if (s.cpu.usage != null) cards.push(statCard('CPU', s.cpu.usage, '%', `${s.device.cores} cores`, s.cpu.usage, s.cpu.usage > 85 ? 'bad' : ''));
-  else if (s.cpu.clock != null) cards.push(statCard('CPU clock', s.cpu.clock, '%', `of max speed · ${s.device.cores} cores`, s.cpu.clock));
-  else cards.push(statCard('CPU', s.device.cores || '—', ' cores', 'Usage hidden by Android'));
+function meters(s) {
+  const out = [];
+  const cpu = s.cpu.usage ?? s.cpu.clock;
+  remember('cpu', cpu);
+  if (s.cpu.usage != null) out.push(meter('CPU', s.cpu.usage, '%', `${s.device.cores} cores`, { spark: HIST.cpu }));
+  else if (s.cpu.clock != null) out.push(meter('CPU speed', s.cpu.clock, '%', `of max · ${s.device.cores} cores`, { spark: HIST.cpu }));
+  else out.push(meter('CPU', s.device.cores || '—', 'cores', 'Usage hidden by Android'));
   if (s.memory && s.memory.total) {
     const used = s.memory.total - s.memory.available;
     const pct = (100 * used) / s.memory.total;
-    cards.push(statCard('Memory', bytes(used), null, `of ${bytes(s.memory.total)}`, pct, pct > 90 ? 'bad' : pct > 75 ? 'warn' : ''));
+    remember('mem', pct);
+    out.push(meter('Memory', bytes(used), null, `of ${bytes(s.memory.total)} · ${Math.round(pct)}%`, { spark: HIST.mem }));
   }
   if (s.storage) {
     const used = s.storage.total - s.storage.free;
     const pct = (100 * used) / s.storage.total;
-    cards.push(statCard('Storage', bytes(s.storage.free), ' free', `${bytes(used)} of ${bytes(s.storage.total)} used`, pct, pct > 90 ? 'bad' : ''));
+    out.push(meter('Storage', bytes(s.storage.free), 'free', `${bytes(used)} of ${bytes(s.storage.total)} used`, { pct, tone: pct > 90 ? 'bad' : pct > 80 ? 'warn' : '' }));
   }
   if (s.battery) {
     const b = s.battery;
     const hint = [b.charging ? 'Charging' : b.charging === false ? 'On battery' : null, b.temp != null ? `${b.temp.toFixed(0)}°C` : null].filter(Boolean).join(' · ');
-    cards.push(statCard('Battery', b.level, '%', hint, b.level, b.level < 20 ? 'bad' : b.charging ? 'good' : ''));
+    out.push(meter('Battery', b.level, '%', hint, { pct: b.level, tone: b.level < 20 ? 'bad' : b.charging ? 'good' : '' }));
   }
-  const temp = s.temperature ?? (s.battery && s.battery.temp);
-  if (temp != null) cards.push(statCard('Temperature', temp.toFixed(0), '°C', s.temperature != null ? 'CPU' : 'Battery', null));
-  cards.push(statCard('Uptime', duration(s.uptime), null, s.ips[0] ? `IP ${s.ips[0].address}` : 'No network address found'));
-  return cards;
+  if (s.temperature != null) out.push(meter('CPU temperature', s.temperature.toFixed(0), '°C', s.temperature > 75 ? 'Running hot' : 'Normal', { pct: s.temperature, tone: s.temperature > 75 ? 'bad' : s.temperature > 60 ? 'warn' : '' }));
+  return out;
 }
 
 function usageText(u) {
   if (!u) return null;
-  return `${u.cpu != null ? u.cpu + '% CPU · ' : ''}${bytes(u.memory)}`;
+  return `${u.cpu != null ? u.cpu + '% · ' : ''}${bytes(u.memory)}`;
 }
 
-function appTile(a) {
-  const stop = (e) => e.stopPropagation();
-  return h('div', { class: 'card tile', role: 'link', tabindex: 0, onclick: () => go('/apps/' + a.id), onkeydown: (e) => { if (e.key === 'Enter') go('/apps/' + a.id); } },
-    h('div', { class: 'tile-top' }, h('span', { class: 'name' }, a.name), statusEl(a.status)),
-    h('div', { class: 'meta' },
-      a.type ? h('span', { class: 'badge accent' }, a.type) : null,
-      h('span', null, `port ${a.port}`),
-      a.status === 'running' ? h('span', null, usageText(a.usage)) : null),
-    a.lastDeploy ? h('div', { class: 'commit' }, a.lastDeploy.ok ? (a.lastDeploy.commit || 'Deployed') : `Deploy failed: ${a.lastDeploy.error}`, ' · ', ago(a.lastDeploy.at)) : null,
-    h('div', { class: 'links' },
-      a.status === 'running' ? h('a', { href: lanUrl(a.port), target: '_blank', rel: 'noopener', onclick: stop }, `${location.hostname}:${a.port} ↗`) : null,
-      a.public && a.public.url ? h('a', { href: a.public.url, target: '_blank', rel: 'noopener', onclick: stop }, 'Public URL ↗') : null));
+function row(href, kids) {
+  return h('div', { class: 'item', role: 'link', tabindex: 0, onclick: () => go(href), onkeydown: (e) => { if (e.key === 'Enter') go(href); } }, kids, icon('right', 'chev'));
+}
+const stopClick = (e) => e.stopPropagation();
+
+/** Short label for how an app runs. Catalog apps don't need one: their name says what they are. */
+const appKind = (a) => (a.source === 'docker' ? 'docker' : a.catalog ? null : a.type);
+
+function appRow(a) {
+  const d = a.lastDeploy;
+  const failed = d && !d.ok;
+  const desc = d ? (failed ? `Deploy failed: ${d.error}` : `${d.commit || 'Deployed'} · ${ago(d.at)}`) : 'Not deployed yet';
+  const r = row('/apps/' + a.id, [
+    monogram(a.name),
+    h('div', { class: 'main' },
+      h('div', { class: 'name' }, a.name, appKind(a) ? h('span', { class: 'kind' }, appKind(a)) : null),
+      h('div', { class: 'desc' + (failed ? ' err' : ''), title: desc }, desc)),
+    statusEl(a.status),
+    a.status === 'running'
+      ? h('a', { class: 'addr', href: lanUrl(a.port), target: '_blank', rel: 'noopener', onclick: stopClick, title: 'Open on your Wi-Fi' }, `${location.hostname}:${a.port}`)
+      : h('span', { class: 'addr faint' }, `port ${a.port}`),
+    h('span', { class: 'use' }, a.status === 'running' ? usageText(a.usage) : ''),
+  ]);
+  return r;
 }
 
-function dbTile(d) {
-  return h('div', { class: 'card tile', role: 'link', tabindex: 0, onclick: () => go('/databases/' + d.id), onkeydown: (e) => { if (e.key === 'Enter') go('/databases/' + d.id); } },
-    h('div', { class: 'tile-top' }, h('span', { class: 'name' }, d.name), statusEl(d.error && d.status !== 'running' ? 'failed' : d.status)),
-    h('div', { class: 'meta' },
-      h('span', { class: 'badge accent' }, d.typeLabel),
-      h('span', null, `port ${d.port}`),
-      d.lan ? h('span', null, 'Wi-Fi access on') : null,
-      d.status === 'running' ? h('span', null, usageText(d.usage)) : null),
-    d.error ? h('div', { class: 'commit' }, d.error) : null);
+function dbRow(d) {
+  const failed = d.error && d.status !== 'running';
+  return row('/databases/' + d.id, [
+    monogram(d.typeLabel, { glyph: 'db' }),
+    h('div', { class: 'main' },
+      h('div', { class: 'name' }, d.name, h('span', { class: 'kind' }, d.typeLabel)),
+      h('div', { class: 'desc' + (failed ? ' err' : '') }, failed ? d.error : d.lan ? 'Open to devices on your Wi-Fi' : 'Only apps on this phone can connect')),
+    statusEl(failed ? 'failed' : d.status),
+    h('span', { class: 'addr' }, `127.0.0.1:${d.port}`),
+    h('span', { class: 'use' }, d.status === 'running' ? usageText(d.usage) : ''),
+  ]);
 }
 
 async function Dashboard(v) {
   const root = h('div');
   const draw = (d) => {
     const s = d.stats;
-    document.getElementById('device-name').textContent = s.device.name;
-    fill(root, 
+    const chip = document.getElementById('device-name');
+    if (chip) chip.textContent = s.device.name;
+    const specs = [s.device.android ? `Android ${s.device.android}` : null, s.device.rom, s.device.arch, `Node ${s.device.node}`].filter(Boolean);
+    fill(root,
       d.initialPassword ? h('div', { class: 'banner' }, "You're still using the password generated at install.", h('a', { class: 'btn small', href: '#/settings' }, 'Change password')) : null,
-      h('div', { class: 'page-head' }, h('div', null,
-        h('h1', null, s.device.name),
-        h('div', { class: 'sub' }, [s.device.android ? `Android ${s.device.android}` : null, s.device.rom, s.device.arch, `Node ${s.device.node}`].filter(Boolean).join(' · ')))),
-      h('div', { class: 'grid stats' }, statCards(s)),
+      h('div', { class: 'device-head' },
+        h('div', null,
+          h('h1', null, s.device.name),
+          h('div', { class: 'specs' }, specs.map((x, i) => [i ? h('span', { class: 'sep' }) : null, h('span', null, x)]))),
+        h('div', { class: 'uptime' }, `Up ${duration(s.uptime)}`, s.ips[0] ? ` · ${s.ips[0].address}` : '')),
+      h('div', { class: 'meters' }, meters(s)),
       h('div', { class: 'section-head' },
-        h('h2', null, 'Applications', h('span', { class: 'count' }, d.apps.length || '')),
-        h('a', { class: 'btn primary small', href: '#/apps/new' }, '+ New app')),
+        h('h2', null, 'Apps', h('span', { class: 'count' }, d.apps.length || '')),
+        h('a', { class: 'btn primary small', href: '#/apps/new' }, icon('plus'), 'New app')),
       d.apps.length
-        ? h('div', { class: 'grid tiles' }, d.apps.map(appTile))
-        : h('div', { class: 'empty' }, h('p', null, 'No apps yet. Deploy one from a Git repository and PocketServer will build and run it.'), h('a', { class: 'btn primary', href: '#/apps/new' }, 'Deploy your first app')),
+        ? h('div', { class: 'list' }, d.apps.map(appRow))
+        : h('div', { class: 'empty' }, h('p', null, 'No apps yet. Install one from the catalog, or deploy your own code from Git.'), h('a', { class: 'btn primary', href: '#/apps/new' }, icon('plus'), 'New app')),
       h('div', { class: 'section-head' },
         h('h2', null, 'Databases', h('span', { class: 'count' }, d.databases.length || '')),
-        h('a', { class: 'btn small', href: '#/databases/new' }, '+ New database')),
+        h('a', { class: 'btn small', href: '#/databases/new' }, icon('plus'), 'New database')),
       d.databases.length
-        ? h('div', { class: 'grid tiles' }, d.databases.map(dbTile))
-        : h('div', { class: 'empty' }, h('p', null, 'PostgreSQL, MariaDB and Redis, one click each.'), h('a', { class: 'btn', href: '#/databases/new' }, 'Create a database')));
+        ? h('div', { class: 'list' }, d.databases.map(dbRow))
+        : h('div', { class: 'empty' }, h('p', null, 'PostgreSQL, MariaDB and Redis, set up in one click.'), h('a', { class: 'btn', href: '#/databases/new' }, icon('plus'), 'New database')));
   };
+  v.render(h('div', { class: 'skeleton', style: 'height:150px;margin-top:66px' }));
   draw(await api('GET', '/overview'));
   v.render(root);
   every(3000, async () => { try { const d = await api('GET', '/overview'); if (v.alive()) draw(d); } catch {} });
@@ -285,7 +381,7 @@ function NewApp(v) {
   [['catalog', 'App catalog'], ['git', 'Git repository'], ['docker', 'Docker image'], ['command', 'Command']]
     .forEach(([k, label]) => tabs.append(h('button', { type: 'button', 'data-k': k, onclick: () => show(k) }, label)));
   v.render(h('div', null,
-    h('a', { class: 'back', href: '#/' }, '← Dashboard'),
+    h('a', { class: 'back', href: '#/' }, icon('left'), 'Dashboard'),
     h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'New app'),
       h('div', { class: 'sub' }, 'Install a ready-made app, deploy your own code, or run a Docker image.'))),
     tabs, body));
@@ -293,32 +389,33 @@ function NewApp(v) {
 }
 
 function catalogPicker() {
-  const grid = h('div', { class: 'grid tiles' }, h('div', { class: 'faint' }, 'Loading…'));
-  const filter = h('input', { type: 'text', placeholder: 'Search apps…' });
+  const grid = h('div', { class: 'grid tiles' }, [1, 2, 3, 4, 5, 6].map(() => h('div', { class: 'skeleton', style: 'height:150px' })));
+  const filter = h('input', { type: 'text', placeholder: 'Search apps', 'aria-label': 'Search apps' });
   let all = [];
   const draw = () => {
     const q = filter.value.trim().toLowerCase();
     const items = all.filter((r) => !q || `${r.name} ${r.description} ${r.category}`.toLowerCase().includes(q));
     const section = (title, help, list) => list.length ? [
-      h('div', { class: 'section-head', style: 'grid-column:1/-1;margin:12px 0 0' }, h('h2', null, title, h('span', { class: 'count' }, list.length)), h('span', { class: 'faint', style: 'font-size:12.5px' }, help)),
+      h('div', { class: 'cat-group' }, h('h2', null, title), h('span', null, help)),
       list.map(catalogTile)] : null;
     fill(grid,
-      section('Runs natively', 'Built for Android. Fast and reliable.', items.filter((r) => r.kind === 'native')),
-      section('Docker images', 'Experimental: runs through udocker. Slower, and some images won\'t work.', items.filter((r) => r.kind === 'docker')),
-      !items.length ? h('div', { class: 'empty', style: 'grid-column:1/-1' }, h('p', null, 'No match. Try a Docker image or a Git repository instead.')) : null);
+      section('Runs natively', 'Built for Android. Fast and light.', items.filter((r) => r.kind === 'native')),
+      section('Docker images', 'Experimental. Runs through udocker, slower, and some images won\'t work.', items.filter((r) => r.kind === 'docker')),
+      !items.length ? h('div', { class: 'empty', style: 'grid-column:1/-1;margin-top:16px' }, h('p', null, 'Nothing matches. Try the Docker image or Git repository tab instead.')) : null);
   };
   filter.addEventListener('input', draw);
-  api('GET', '/catalog').then((r) => { all = r; draw(); }).catch((e) => fill(grid, h('div', { class: 'banner' }, e.message)));
-  return h('div', null, h('div', { style: 'max-width:360px;margin-bottom:8px' }, filter), grid,
-    h('p', { class: 'faint', style: 'margin-top:20px' }, 'Want an app that isn\'t here? Use the Docker image tab with its image name from Docker Hub, or the Git repository tab.'));
+  api('GET', '/catalog').then((r) => { all = r; draw(); }).catch((e) => fill(grid, h('div', { class: 'banner bad', style: 'grid-column:1/-1' }, e.message)));
+  return h('div', null,
+    h('div', { class: 'catalog-tools' }, h('div', { class: 'search' }, icon('search'), filter)),
+    grid,
+    h('p', { class: 'faint', style: 'margin-top:28px' }, 'Want an app that isn\'t here? Use the Docker image tab with its name from Docker Hub, or the Git repository tab.'));
 }
 
 function catalogTile(r) {
-  return h('div', { class: 'card tile catalog-tile', role: 'button', tabindex: 0, onclick: () => installDialog(r), onkeydown: (e) => { if (e.key === 'Enter') installDialog(r); } },
-    h('div', { class: 'tile-top' }, h('span', { class: 'app-icon' }, r.icon || r.name[0]), h('span', { class: 'name' }, r.name)),
-    h('p', { class: 'muted', style: 'margin:8px 0 10px;font-size:13px' }, r.description),
-    h('div', { class: 'meta', style: 'margin:0' },
-      h('span', { class: 'badge' }, r.category),
+  return h('button', { class: 'app-card', type: 'button', onclick: () => installDialog(r) },
+    h('div', { class: 'top' }, monogram(r.name), h('div', null, h('div', { class: 'name' }, r.name), h('div', { class: 'cat' }, r.category))),
+    h('p', null, r.description),
+    h('div', { class: 'tags' },
       r.kind === 'docker' ? h('span', { class: 'badge warn' }, 'Docker · experimental') : h('span', { class: 'badge ok' }, 'Native'),
       r.needsDb ? h('span', { class: 'badge' }, `+ ${r.needsDb === 'postgres' ? 'PostgreSQL' : r.needsDb}`) : null));
 }
@@ -334,8 +431,8 @@ function installDialog(r) {
       go('/apps/' + a.id + '/logs');
     }),
   },
-  h('div', { class: 'tile-top', style: 'margin-bottom:10px' }, h('span', { class: 'app-icon' }, r.icon), h('h3', { style: 'margin:0' }, r.name)),
-  h('p', { class: 'muted' }, r.description, ' ', r.website ? h('a', { href: r.website, target: '_blank', rel: 'noopener' }, 'Website ↗') : null),
+  h('div', { class: 'page-head', style: 'margin-bottom:14px' }, h('div', { class: 'title' }, monogram(r.name, { large: true }), h('div', null, h('h3', { style: 'margin:0;font-size:17px' }, r.name), h('div', { class: 'faint', style: 'font-size:12.5px' }, r.category)))),
+  h('p', { class: 'muted' }, r.description, ' ', r.website ? h('a', { href: r.website, target: '_blank', rel: 'noopener' }, 'Website') : null),
   r.kind === 'docker' ? h('div', { class: 'banner', style: 'margin:0 0 14px' }, `Runs the ${r.image} Docker image through udocker. This is experimental: the first install downloads the image and can take several minutes, and it uses more memory than native apps.`) : null,
   r.needsDb ? h('p', { class: 'muted' }, 'A PostgreSQL database will be created for it.') : null,
   r.notes ? h('p', { class: 'faint' }, r.notes) : null,
@@ -441,6 +538,14 @@ function sourceForm(source) {
 }
 
 // ---------- logs panel ----------
+// Many programs log everything to stderr, so stderr alone isn't shown as an error. Lines that look
+// like errors or warnings are highlighted instead.
+function lineTone(l) {
+  if (l.s === 'sys') return /^✗|failed|error/i.test(l.m) ? 'bad' : 'sys';
+  if (/\b(level=(error|fatal)|error|fatal|panic|exception|traceback|segfault|ERR!)\b|^✗/i.test(l.m) && !/\b(level=(info|debug)|0 errors?|no errors?)\b/i.test(l.m)) return 'bad';
+  if (/\b(level=warn(ing)?|warn(ing)?|deprecated)\b/i.test(l.m) && !/level=(info|debug)/i.test(l.m)) return 'warn';
+  return 'out';
+}
 function logPanel(key, { onStatus } = {}) {
   const term = h('div', { class: 'terminal' }, h('div', { class: 'placeholder' }, 'Connecting…'));
   const live = h('span', { class: 'live off' }, 'Connecting');
@@ -449,7 +554,7 @@ function logPanel(key, { onStatus } = {}) {
   const add = (l) => {
     const first = term.firstChild;
     if (first && first.classList && first.classList.contains('placeholder')) term.replaceChildren();
-    term.append(h('div', { class: 'ln ' + (l.s || 'out') }, h('time', null, clock(l.t)), l.m));
+    term.append(h('div', { class: 'ln ' + lineTone(l) }, h('time', null, clock(l.t)), l.m));
     while (term.childNodes.length > 2000) term.firstChild.remove();
     if (follow) term.scrollTop = term.scrollHeight;
   };
@@ -479,34 +584,36 @@ function logPanel(key, { onStatus } = {}) {
 async function AppPage(v, id, tab) {
   let a = await api('GET', '/apps/' + id);
   const head = h('div');
-  const action = (label, path, cls, done) => {
-    const b = h('button', { class: 'btn small ' + (cls || '') }, label);
+  const action = (label, path, cls, done, ic) => {
+    const b = h('button', { class: 'btn small ' + (cls || '') }, ic ? icon(ic) : null, label);
     b.addEventListener('click', busy(b, async () => { await api('POST', `/apps/${id}/${path}`); toast(done, 'ok'); refresh(); }));
     return b;
   };
   const drawHead = () => {
     const running = a.status === 'running';
     fill(head, 
-      h('a', { class: 'back', href: '#/' }, '← Dashboard'),
+      h('a', { class: 'back', href: '#/' }, icon('left'), 'Dashboard'),
       h('div', { class: 'page-head' },
-        h('div', null,
-          h('h1', null, a.name),
-          h('div', { class: 'sub' },
-            statusEl(a.status),
-            a.type ? h('span', { class: 'badge accent' }, a.type) : null,
-            h('span', null, `port ${a.port}`),
-            running && a.usage ? h('span', null, usageText(a.usage)) : null,
-            running && a.startedAt ? h('span', null, `up ${duration((Date.now() - a.startedAt) / 1000)}`) : null,
-            a.restarts ? h('span', null, `${a.restarts} restarts`) : null)),
+        h('div', { class: 'title' },
+          monogram(a.name, { large: true }),
+          h('div', { style: 'min-width:0' },
+            h('h1', null, a.name),
+            h('div', { class: 'sub' },
+              statusEl(a.status),
+              appKind(a) ? h('span', { class: 'meta-mono' }, appKind(a)) : null,
+              h('span', { class: 'meta-mono' }, `:${a.port}`),
+              running && a.usage ? h('span', { class: 'meta-mono' }, usageText(a.usage)) : null,
+              running && a.startedAt ? h('span', { class: 'meta-mono' }, `up ${duration((Date.now() - a.startedAt) / 1000)}`) : null,
+              a.restarts ? h('span', { class: 'meta-mono' }, `${a.restarts} restarts`) : null))),
         h('div', { class: 'actions' },
-          running ? h('a', { class: 'btn small', href: lanUrl(a.port), target: '_blank', rel: 'noopener' }, 'Open ↗') : null,
-          action(a.source === 'git' || a.catalog ? 'Redeploy' : a.source === 'docker' ? 'Pull & redeploy' : 'Apply & restart', 'deploy', 'primary', 'Deploy started'),
-          running || a.status === 'crashed' ? action('Restart', 'restart', '', 'Restarted') : null,
           running || a.status === 'crashed' || a.status === 'deploying'
-            ? action('Stop', 'stop', '', 'Stopped')
-            : action('Start', 'start', '', 'Starting'))),
+            ? action('Stop', 'stop', 'ghost', 'Stopped', 'stop')
+            : action('Start', 'start', 'ghost', 'Starting', 'play'),
+          running || a.status === 'crashed' ? action('Restart', 'restart', '', 'Restarted', 'restart') : null,
+          action(a.source === 'git' || a.catalog ? 'Redeploy' : a.source === 'docker' ? 'Pull & redeploy' : 'Apply & restart', 'deploy', '', 'Deploy started', 'deploy'),
+          running ? h('a', { class: 'btn small primary', href: lanUrl(a.port), target: '_blank', rel: 'noopener' }, 'Open', icon('out')) : null)),
       a.lastDeploy && !a.lastDeploy.ok && a.status !== 'deploying'
-        ? h('div', { class: 'banner' }, `Last deploy failed: ${a.lastDeploy.error}`) : null,
+        ? h('div', { class: 'banner bad' }, `Last deploy failed: ${a.lastDeploy.error}`) : null,
       h('div', { class: 'tabs' }, [['logs', 'Logs'], ['env', 'Environment'], ['public', 'Public URL'], ['settings', 'Settings']]
         .map(([k, label]) => h('a', { href: `#/apps/${id}/${k}`, class: tab === k ? 'on' : '' }, label))));
   };
@@ -529,9 +636,9 @@ function appInfo(a) {
   const notes = a.catalog && a.catalog.notes;
   if (!c && !notes) return null;
   const url = lanUrl(a.port) + (c && c.path ? c.path : '');
-  return h('div', { class: 'card', style: 'margin-bottom:14px' },
+  return h('div', { class: 'card info-card' },
     c ? h('div', { class: 'creds' },
-      h('div', null, h('div', { class: 'label' }, 'Open'), h('a', { href: url, target: '_blank', rel: 'noopener' }, url.replace(/^https?:\/\//, '') + ' ↗')),
+      h('div', null, h('div', { class: 'label' }, 'Address'), h('a', { href: url, target: '_blank', rel: 'noopener' }, url.replace(/^https?:\/\//, ''), icon('out'))),
       c.username ? h('div', null, h('div', { class: 'label' }, 'Username'), copyField(c.username)) : null,
       h('div', null, h('div', { class: 'label' }, 'Password'), copyField(c.password, { secret: true }))) : null,
     notes ? h('p', { class: 'faint', style: c ? 'margin:12px 0 0' : 'margin:0' }, notes) : null);
@@ -540,9 +647,11 @@ function appInfo(a) {
 function deployInfo(a) {
   if (!a.lastDeploy) return null;
   const d = a.lastDeploy;
-  return h('div', { class: 'term-bar', style: 'margin-bottom:4px' },
-    h('span', null, d.ok ? '✓' : '✗', ' ', d.sha ? h('code', null, d.sha.slice(0, 7)) : null, ' ', d.commit || (d.ok ? 'Deployed' : 'Failed')),
-    h('span', { class: 'faint' }, `· ${ago(d.at)} · ${d.seconds}s · ${d.reason}`));
+  return h('div', { class: 'deploy-line' },
+    h('span', { class: d.ok ? 'ok' : 'no' }, d.ok ? 'Deployed' : 'Failed'),
+    d.sha ? h('code', { class: 'faint' }, d.sha.slice(0, 7)) : null,
+    d.commit ? h('span', null, d.commit) : null,
+    h('span', { class: 'faint' }, `${ago(d.at)} · took ${d.seconds}s · ${d.reason}`));
 }
 
 function appEnvTab(a) {
@@ -576,7 +685,7 @@ function appPublicTab(a, refresh) {
         h('p', null, 'Share your app with anyone on the internet through Cloudflare Tunnel. Free, no account, no router setup, and it works on mobile data too.'),
         pub.enabled
           ? (pub.url
-            ? h('div', { class: 'field' }, copyField(pub.url), h('div', { class: 'help' }, h('a', { href: pub.url, target: '_blank', rel: 'noopener' }, 'Open ↗'), ' · The address changes if the tunnel restarts. Use your own domain (Settings) for a permanent one.'))
+            ? h('div', { class: 'field' }, copyField(pub.url), h('div', { class: 'help' }, h('a', { href: pub.url, target: '_blank', rel: 'noopener' }, 'Open'), ' · The address changes if the tunnel restarts. Use your own domain (Settings) for a permanent one.'))
             : h('p', { class: 'muted' }, 'Getting an address… (status: ', a.tunnel, ')'))
           : null,
         toggle),
@@ -614,7 +723,7 @@ function appSettingsTab(a) {
   const dcmd = inp(dk.command, 'Image default');
   const auto = h('input', { type: 'checkbox', checked: a.autoDeploy });
   const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
-  const del = h('button', { class: 'btn danger', type: 'button' }, 'Delete app');
+  const del = h('button', { class: 'btn danger', type: 'button' }, icon('trash'), 'Delete app');
   del.addEventListener('click', busy(del, async () => {
     if (!confirm(`Delete "${a.name}"? Its files and logs on the phone are removed. This can't be undone.`)) return;
     await api('DELETE', '/apps/' + a.id);
@@ -670,12 +779,12 @@ function NewDatabase(v) {
   const draw = () => fill(choices, ...DB_TYPES.map((t) => h('button', {
     type: 'button', class: 'choice' + (t.type === type ? ' on' : ''),
     onclick: () => { type = t.type; name.placeholder = t.label; draw(); },
-  }, h('strong', null, t.label), h('small', null, t.note))));
+  }, monogram(t.label, { glyph: 'db' }), h('span', null, h('strong', null, t.label), h('small', null, t.note)))));
   draw();
   const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Create database');
   const err = h('div', { class: 'error-text' });
   v.render(h('div', null,
-    h('a', { class: 'back', href: '#/' }, '← Dashboard'),
+    h('a', { class: 'back', href: '#/' }, icon('left'), 'Dashboard'),
     h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'New database'), h('div', { class: 'sub' }, 'Installed and set up for you. A strong password is generated.'))),
     h('form', {
       class: 'card', style: 'max-width:640px',
@@ -701,7 +810,7 @@ async function DbPage(v, id, tab) {
     b.addEventListener('click', busy(b, async () => { await api('POST', `/databases/${id}/${path}`); toast(done, 'ok'); refresh(); }));
     return b;
   };
-  const del = h('button', { class: 'btn small danger' }, 'Delete');
+  const del = h('button', { class: 'btn small danger ghost' }, icon('trash'), 'Delete');
   del.addEventListener('click', busy(del, async () => {
     if (!confirm(`Delete "${d.name}" and all its data? This can't be undone.`)) return;
     await api('DELETE', '/databases/' + id);
@@ -712,14 +821,15 @@ async function DbPage(v, id, tab) {
   const drawHead = () => {
     const running = d.status === 'running';
     fill(head,
-      h('a', { class: 'back', href: '#/' }, '← Dashboard'),
+      h('a', { class: 'back', href: '#/' }, icon('left'), 'Dashboard'),
       h('div', { class: 'page-head' },
-        h('div', null, h('h1', null, d.name), h('div', { class: 'sub' }, statusEl(d.error && !running ? 'failed' : d.status), h('span', { class: 'badge accent' }, d.typeLabel), h('span', null, `port ${d.port}`))),
+        h('div', { class: 'title' }, monogram(d.typeLabel, { large: true, glyph: 'db' }),
+          h('div', { style: 'min-width:0' }, h('h1', null, d.name), h('div', { class: 'sub' }, statusEl(d.error && !running ? 'failed' : d.status), h('span', { class: 'meta-mono' }, d.typeLabel.toLowerCase()), h('span', { class: 'meta-mono' }, `:${d.port}`)))),
         h('div', { class: 'actions' },
           running ? action('Restart', 'restart', 'Restarting') : null,
           running || d.status === 'starting' || d.status === 'crashed' ? action('Stop', 'stop', 'Stopped') : action('Start', 'start', 'Starting'),
           del)),
-      d.error && !running ? h('div', { class: 'banner' }, d.error) : null,
+      d.error && !running ? h('div', { class: 'banner bad' }, d.error) : null,
       h('div', { class: 'tabs' }, [['data', d.type === 'redis' ? 'Keys' : 'Data'], ['connect', 'Connect'], ['logs', 'Logs']]
         .map(([k, label]) => h('a', { href: `#/databases/${id}/${k}`, class: tab === k ? 'on' : '' }, label))));
   };
@@ -795,7 +905,7 @@ function sqlBrowser(id, d) {
     if (current) await loadRows(); else fill(grid, h('div', { class: 'empty' }, h('p', null, 'No tables yet.'), h('p', { class: 'faint' }, 'Create one with SQL below, or let your app create its tables.')));
   };
   const drawList = () => fill(list,
-    h('div', { class: 'table-list-head' }, 'Tables', h('button', { class: 'btn ghost small', title: 'Reload', onclick: () => loadTables().catch((e) => toast(e.message, 'error')) }, '↻')),
+    h('div', { class: 'table-list-head' }, 'Tables', h('button', { class: 'btn ghost small', title: 'Reload', onclick: () => loadTables().catch((e) => toast(e.message, 'error')) }, icon('refresh'))),
     tables.length ? tables.map((t) => h('button', {
       class: 'table-item' + (current === t ? ' on' : ''),
       onclick: () => { current = t; page.offset = 0; drawList(); loadRows().catch((e) => toast(e.message, 'error')); },
@@ -814,11 +924,11 @@ function sqlBrowser(id, d) {
       h('strong', null, tname(current)),
       h('span', { class: 'faint' }, `${from}–${to} of ${r.total}`),
       h('span', { class: 'spacer' }),
-      h('button', { class: 'btn small', disabled: r.offset === 0, onclick: () => { page.offset = Math.max(0, r.offset - r.limit); loadRows().catch((e) => toast(e.message, 'error')); } }, '← Prev'),
-      h('button', { class: 'btn small', disabled: to >= r.total, onclick: () => { page.offset = r.offset + r.limit; loadRows().catch((e) => toast(e.message, 'error')); } }, 'Next →'),
-      !current.view ? h('button', { class: 'btn small primary', onclick: () => rowEditor(r.columns, null) }, '+ Add row') : null);
+      h('button', { class: 'btn small', disabled: r.offset === 0, onclick: () => { page.offset = Math.max(0, r.offset - r.limit); loadRows().catch((e) => toast(e.message, 'error')); } }, icon('left'), 'Prev'),
+      h('button', { class: 'btn small', disabled: to >= r.total, onclick: () => { page.offset = r.offset + r.limit; loadRows().catch((e) => toast(e.message, 'error')); } }, 'Next', icon('right')),
+      !current.view ? h('button', { class: 'btn small primary', onclick: () => rowEditor(r.columns, null) }, icon('plus'), 'Add row') : null);
     const table = h('table', { class: 'data' },
-      h('thead', null, h('tr', null, r.columns.map((c) => h('th', { title: c.type }, c.name, c.pk ? h('span', { class: 'pk' }, ' 🔑') : null, h('small', null, c.type))))),
+      h('thead', null, h('tr', null, r.columns.map((c) => h('th', { title: c.type }, c.name, c.pk ? h('span', { class: 'pk', title: 'Primary key' }, 'PK') : null, h('small', null, c.type))))),
       h('tbody', null, r.rows.length ? r.rows.map((row) => h('tr', {
         class: editable ? 'clickable' : '',
         onclick: editable ? () => rowEditor(r.columns, row) : null,
@@ -933,7 +1043,7 @@ function redisBrowser(id) {
     drawList();
   };
   const drawList = () => fill(list,
-    h('div', { class: 'table-list-head' }, `${total} key${total === 1 ? '' : 's'}`, h('button', { class: 'btn ghost small', title: 'Reload', onclick: () => load().catch((e) => toast(e.message, 'error')) }, '↻')),
+    h('div', { class: 'table-list-head' }, `${total} key${total === 1 ? '' : 's'}`, h('button', { class: 'btn ghost small', title: 'Reload', onclick: () => load().catch((e) => toast(e.message, 'error')) }, icon('refresh'))),
     keys.map((k) => h('button', { class: 'table-item' + (selected === k.name ? ' on' : ''), onclick: () => openKey(k.name) },
       h('span', { class: 'key-name' }, k.name), h('span', { class: 'badge' }, k.type))),
     cursor ? h('button', { class: 'btn ghost small', style: 'width:100%', onclick: () => load(true).catch((e) => toast(e.message, 'error')) }, 'Load more') : null,
@@ -993,7 +1103,7 @@ function redisBrowser(id) {
       h('p', { class: 'faint', style: 'font-size:12.5px;margin-top:6px' }, 'Click a field to edit it.'));
   };
 
-  const newKey = h('button', { class: 'btn small primary' }, '+ New key');
+  const newKey = h('button', { class: 'btn small primary' }, icon('plus'), 'New key');
   newKey.addEventListener('click', () => {
     const name = h('input', { type: 'text', placeholder: 'my:key', spellcheck: 'false' });
     const value = h('textarea', { spellcheck: 'false', style: 'min-height:100px' });
