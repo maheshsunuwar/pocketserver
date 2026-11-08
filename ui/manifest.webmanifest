@@ -1,6 +1,6 @@
 {
-  "name": "PocketHost",
-  "short_name": "PocketHost",
+  "name": "PocketServer",
+  "short_name": "PocketServer",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0b0b10",

@@ -1,5 +1,5 @@
 'use strict';
-/* PocketHost dashboard — plain JS, no build step. All user text goes in via textContent (never innerHTML). */
+/* PocketServer dashboard — plain JS, no build step. All user text goes in via textContent (never innerHTML). */
 
 // ---------- helpers ----------
 function h(tag, attrs, ...kids) {
@@ -28,7 +28,7 @@ function fill(el, ...kids) {
 async function api(method, url, body) {
   const res = await fetch('/api' + url, {
     method,
-    headers: { 'content-type': 'application/json', 'x-pockethost': '1' },
+    headers: { 'content-type': 'application/json', 'x-pocketserver': '1' },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: 'same-origin',
   });
@@ -144,7 +144,7 @@ function showShell() {
   shellShown = true;
   fill(document.getElementById('app'),
     h('header', { class: 'topbar' },
-      h('a', { class: 'brand', href: '#/' }, h('img', { src: 'icon.svg', alt: '' }), 'PocketHost', h('small', { id: 'device-name' })),
+      h('a', { class: 'brand', href: '#/' }, h('img', { src: 'icon.svg', alt: '' }), 'PocketServer', h('small', { id: 'device-name' })),
       h('nav', { class: 'nav' },
         h('a', { href: '#/', 'data-r': 'home' }, 'Dashboard'),
         h('a', { href: '#/settings', 'data-r': 'settings' }, 'Settings'),
@@ -173,10 +173,10 @@ function showLogin() {
   }, field('Password', pw), btn, err);
   fill(document.getElementById('app'),
     h('div', { class: 'login' }, h('div', { class: 'card' },
-      h('div', { class: 'brand' }, h('img', { src: 'icon.svg', alt: '' }), 'PocketHost'),
+      h('div', { class: 'brand' }, h('img', { src: 'icon.svg', alt: '' }), 'PocketServer'),
       h('p', { class: 'muted' }, 'Your phone, your server.'),
       form,
-      h('p', { class: 'faint', style: 'font-size:12.5px;margin:6px 0 0' }, 'Forgot it? Run ', h('code', null, 'pockethost password'), ' in Termux.'))));
+      h('p', { class: 'faint', style: 'font-size:12.5px;margin:6px 0 0' }, 'Forgot it? Run ', h('code', null, 'pocketserver password'), ' in Termux.'))));
   setTimeout(() => pw.focus(), 50);
 }
 
@@ -261,7 +261,7 @@ async function Dashboard(v) {
         h('a', { class: 'btn primary small', href: '#/apps/new' }, '+ New app')),
       d.apps.length
         ? h('div', { class: 'grid tiles' }, d.apps.map(appTile))
-        : h('div', { class: 'empty' }, h('p', null, 'No apps yet. Deploy one from a Git repository and PocketHost will build and run it.'), h('a', { class: 'btn primary', href: '#/apps/new' }, 'Deploy your first app')),
+        : h('div', { class: 'empty' }, h('p', null, 'No apps yet. Deploy one from a Git repository and PocketServer will build and run it.'), h('a', { class: 'btn primary', href: '#/apps/new' }, 'Deploy your first app')),
       h('div', { class: 'section-head' },
         h('h2', null, 'Databases', h('span', { class: 'count' }, d.databases.length || '')),
         h('a', { class: 'btn small', href: '#/databases/new' }, '+ New database')),
@@ -369,7 +369,7 @@ function dockerForm() {
   },
   field('Image', image, 'From Docker Hub or another registry. It must be published for arm64 (most popular images are).'),
   field('Name', name),
-  field('Container port', cport, 'The port the app listens on inside the container (from the image\'s docs, e.g. 80, 3000, 8080). PocketHost maps it to a free port on the phone.'),
+  field('Container port', cport, 'The port the app listens on inside the container (from the image\'s docs, e.g. 80, 3000, 8080). PocketServer maps it to a free port on the phone.'),
   field('Volumes', volumes, 'Folders inside the container to keep between updates, one per line, e.g. /data. They are stored in the app\'s data folder.'),
   h('details', { class: 'advanced' }, h('summary', null, 'Advanced: command'), field('Command', command, 'Overrides the image\'s CMD.')),
   field('Environment variables', env, 'One KEY=value per line, as in docker run -e.'),
@@ -433,7 +433,7 @@ function sourceForm(source) {
     h('div', { class: 'card' }, form),
     isGit ? h('div', { class: 'card' }, h('h3', null, 'How it works'),
       h('ol', { class: 'steps' },
-        h('li', null, h('strong', null, 'Clone. '), 'PocketHost pulls your repository onto the phone.'),
+        h('li', null, h('strong', null, 'Clone. '), 'PocketServer pulls your repository onto the phone.'),
         h('li', null, h('strong', null, 'Detect. '), 'It looks for package.json, requirements.txt, go.mod, Cargo.toml, composer.json, a Procfile or index.html, and installs the runtime if it is missing.'),
         h('li', null, h('strong', null, 'Build and run. '), 'Dependencies are installed, the build runs, and your app starts with ', h('code', null, 'PORT'), ' set. It is restarted if it crashes.'),
         h('li', null, h('strong', null, 'Share. '), 'Open it on your Wi-Fi straight away, or turn on a free public URL from the app page.')),
@@ -588,7 +588,7 @@ function appPublicTab(a, refresh) {
     pub.enabled ? h('div', { class: 'card', style: 'margin-top:16px' }, h('h3', null, 'Tunnel logs'), logPanel('tunnel-' + a.id, { onStatus: refresh })) : null,
     a.source === 'git' ? h('div', { class: 'card', style: 'margin-top:16px' },
       h('h3', null, 'Deploy webhook (optional)'),
-      h('p', null, 'PocketHost already checks for new commits every 2 minutes. For instant deploys, add this webhook in GitHub, GitLab or Gitea. It only works if this dashboard is reachable from the internet, for example through your own domain.'),
+      h('p', null, 'PocketServer already checks for new commits every 2 minutes. For instant deploys, add this webhook in GitHub, GitLab or Gitea. It only works if this dashboard is reachable from the internet, for example through your own domain.'),
       h('dl', { class: 'kv' },
         h('dt', null, 'Payload URL'), h('dd', null, copyField(hookUrl)),
         h('dt', null, 'Secret'), h('dd', null, copyField(a.webhookSecret, { secret: true })),
@@ -1071,7 +1071,7 @@ async function Settings(v) {
         h('code', null, 'adb shell "/system/bin/device_config set_sync_disabled_for_tests persistent; /system/bin/device_config put activity_manager max_phantom_processes 2147483647"')),
       h('li', null, h('strong', null, 'Battery health: '), 'a phone on the charger 24/7 can swell its battery. Turn on your phone\'s charge limit (often called "Protect battery", "Optimized charging" or "Charging control") to stop at ~80%.'),
       h('li', null, h('strong', null, 'Fixed address: '), 'reserve an IP for the phone in your router so its Wi-Fi address stays the same.')),
-    h('p', { class: 'faint' }, 'Run ', h('code', null, 'pockethost doctor'), ' in Termux to check your setup.'));
+    h('p', { class: 'faint' }, 'Run ', h('code', null, 'pocketserver doctor'), ' in Termux to check your setup.'));
 
   const about = h('div', { class: 'card' }, h('h3', null, 'About'),
     h('dl', { class: 'kv' },
@@ -1082,7 +1082,7 @@ async function Settings(v) {
       h('dt', null, 'Node.js'), h('dd', null, s.device.node),
       h('dt', null, 'Dashboard port'), h('dd', null, s.port),
       h('dt', null, 'Data folder'), h('dd', null, h('code', null, s.dataDir))),
-    h('p', { class: 'faint', style: 'margin-top:12px' }, 'Update with ', h('code', null, 'pockethost update'), '.'));
+    h('p', { class: 'faint', style: 'margin-top:12px' }, 'Update with ', h('code', null, 'pocketserver update'), '.'));
 
   v.render(h('div', null,
     h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Settings'))),
@@ -1099,7 +1099,7 @@ function gitCard() {
       h('li', null, 'Deploy using the SSH address, like ', h('code', null, 'git@github.com:you/app.git'), '.')),
     h('p', { class: 'faint', style: 'margin:0' }, 'Public repos need none of this: paste the link, or just ', h('code', null, 'you/app'), '.'))).catch((e) => fill(box, h('p', { class: 'error-text' }, e.message)));
   return h('div', { class: 'card' }, h('h3', { id: 'git' }, 'Git access (private repos)'),
-    h('p', null, 'This phone has its own SSH key. Add it to a private repository once, and PocketHost can deploy it and pick up new commits.'),
+    h('p', null, 'This phone has its own SSH key. Add it to a private repository once, and PocketServer can deploy it and pick up new commits.'),
     box);
 }
 
@@ -1112,7 +1112,7 @@ function sshCard() {
     const toggle = h('button', { class: 'btn ' + (st.enabled ? '' : 'primary') }, st.enabled ? 'Turn off SSH' : 'Turn on SSH');
     toggle.addEventListener('click', busy(toggle, async () => { draw(await api('POST', '/settings/ssh', { enabled: !st.enabled })); toast(st.enabled ? 'SSH turned off' : 'SSH is on', 'ok'); }));
     const sshCmd = `ssh -p ${st.port} ${st.user}@${ip}`;
-    const sshConfig = `Host pockethost\n  HostName ${ip}\n  Port ${st.port}\n  User ${st.user}`;
+    const sshConfig = `Host pocketserver\n  HostName ${ip}\n  Port ${st.port}\n  User ${st.user}`;
     fill(box,
       h('p', null, 'Open a terminal on the phone, or edit your apps\' files from VS Code on your computer. Logins use SSH keys only, never passwords.'),
       h('div', { class: 'field' }, h('label', null, 'Computers allowed to log in'),
@@ -1131,7 +1131,7 @@ function sshCard() {
         h('ol', { class: 'steps' },
           h('li', null, 'Add this to ', h('code', null, '~/.ssh/config'), ' on your computer:', h('pre', { class: 'reply', style: 'margin-top:6px' }, sshConfig)),
           h('li', null, 'In VS Code, install the ', h('strong', null, 'SSH FS'), ' extension (by Kelvin Schoofs).'),
-          h('li', null, 'Run ', h('strong', null, 'SSH FS: Create a SSH FS configuration'), ', set host ', h('code', null, 'pockethost'), ' and root ', h('code', null, st.appsDir), ', then connect.')),
+          h('li', null, 'Run ', h('strong', null, 'SSH FS: Create a SSH FS configuration'), ', set host ', h('code', null, 'pocketserver'), ' and root ', h('code', null, st.appsDir), ', then connect.')),
         h('p', { class: 'faint' }, 'Your apps\' code is in ', h('code', null, st.appsDir + '/<app id>/src'), '. Edits there are overwritten by the next deploy, so commit and push your changes for anything you want to keep. VS Code\'s own "Remote - SSH" doesn\'t support Android, which is why SSH FS is used.'),
         st.hostFingerprint ? h('p', { class: 'faint', style: 'margin:0' }, 'Phone\'s fingerprint, to check on first connect: ', h('code', null, st.hostFingerprint)) : null,
         h('details', { class: 'advanced', style: 'margin-top:10px' }, h('summary', null, 'SSH logs'), logPanel('sshd'))) : null);
@@ -1149,6 +1149,6 @@ window.addEventListener('hashchange', () => { if (shellShown) router(); });
     showShell();
     router();
   } catch {
-    document.getElementById('app').replaceChildren(h('div', { class: 'boot' }, "Can't reach PocketHost. Is it running?"));
+    document.getElementById('app').replaceChildren(h('div', { class: 'boot' }, "Can't reach PocketServer. Is it running?"));
   }
 })();

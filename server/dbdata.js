@@ -1,5 +1,5 @@
 'use strict';
-// Browse and edit data in PocketHost's databases from the dashboard.
+// Browse and edit data in PocketServer's databases from the dashboard.
 // PostgreSQL and MariaDB go through their own command-line clients (no npm drivers);
 // Redis uses a tiny built-in client. User values never get pasted into SQL text:
 // psql gets them as quoted variables, MariaDB as hex literals.

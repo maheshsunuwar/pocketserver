@@ -1,5 +1,5 @@
 'use strict';
-// All PocketHost state lives in one JSON file (~/.pockethost/state.json), written atomically.
+// All PocketServer state lives in one JSON file (~/.pocketserver/state.json), written atomically.
 const fs = require('fs');
 const { paths } = require('./util');
 

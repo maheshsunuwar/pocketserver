@@ -28,7 +28,7 @@ function setPassword(pw) {
   state.settings.initialPassword = false;
   flush();
 }
-/** First run: create a random password and leave it in a private file for `pockethost start` to show. */
+/** First run: create a random password and leave it in a private file for `pocketserver start` to show. */
 function ensurePassword() {
   if (state.settings.password) return;
   const pw = crypto.randomBytes(9).toString('base64url');

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run a command on the phone, inside Termux's environment, over adb.
-#   dev/phone.sh 'pockethost status'
+#   dev/phone.sh 'pocketserver status'
 # Needs the GitHub build of Termux (it's debuggable, so `run-as com.termux` works).
 # Set PH_DEVICE to pick a phone when more than one is connected (see `adb devices`).
 #

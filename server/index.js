@@ -1,5 +1,5 @@
 'use strict';
-// PocketHost: turn an Android phone into a self-hosting server.
+// PocketServer: turn an Android phone into a self-hosting server.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -17,7 +17,7 @@ const tunnels = require('./tunnels');
 const stats = require('./stats');
 const VERSION = require('../package.json').version;
 
-const PORT = Number(process.env.POCKETHOST_PORT || state.settings.port || 7777);
+const PORT = Number(process.env.POCKETSERVER_PORT || state.settings.port || 7777);
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const MAX_BODY = 1024 * 1024;
 
@@ -208,7 +208,7 @@ const server = http.createServer(async (req, res) => {
     if (r.auth) {
       if (!auth.isLoggedIn(req)) throw new U.HttpError(401, 'Please log in.');
       // Blocks cross-site form posts: browsers can't add this header without CORS, which we never allow.
-      if (req.method !== 'GET' && req.headers['x-pockethost'] !== '1') throw new U.HttpError(403, 'Missing request header.');
+      if (req.method !== 'GET' && req.headers['x-pocketserver'] !== '1') throw new U.HttpError(403, 'Missing request header.');
     }
     const m = pathname.match(r.re);
     const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
@@ -231,18 +231,18 @@ function main() {
   auth.ensurePassword();
   server.on('error', (e) => {
     if (e.code === 'EADDRINUSE') {
-      console.error(`Port ${PORT} is already in use. Is PocketHost already running?`);
+      console.error(`Port ${PORT} is already in use. Is PocketServer already running?`);
       process.exit(98); // tells the watchdog not to keep retrying
     }
     console.error(e.message);
     process.exit(1);
   });
   server.listen(PORT, '0.0.0.0', () => {
-    // Only clean up leftover app processes once we know we're the only PocketHost.
+    // Only clean up leftover app processes once we know we're the only PocketServer.
     // Doing it earlier let a duplicate instance kill the running one's apps.
     S.killStale();
     const ip = (U.localIPs()[0] || {}).address || 'localhost';
-    console.log(`PocketHost ${VERSION} running on http://${ip}:${PORT}`);
+    console.log(`PocketServer ${VERSION} running on http://${ip}:${PORT}`);
     apps.restore();
     dbs.restore();
     sshd.restore();

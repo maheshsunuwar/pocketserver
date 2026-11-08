@@ -182,7 +182,7 @@ function forget(key) {
   procs.delete(key);
 }
 
-/** After a crash of PocketHost itself, children may still be alive. Kill them before starting fresh. */
+/** After a crash of PocketServer itself, children may still be alive. Kill them before starting fresh. */
 function killStale() {
   for (const pid of Object.values(state.pids || {})) killGroup(pid, 'SIGKILL');
   state.pids = {};

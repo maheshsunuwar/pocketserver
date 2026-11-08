@@ -1,6 +1,6 @@
 # Notes for AI coding assistants (and humans)
 
-PocketHost turns an Android phone into a self-hosting server: a Coolify-style dashboard running in Termux,
+PocketServer turns an Android phone into a self-hosting server: a Coolify-style dashboard running in Termux,
 with no root and no Docker daemon. Read `CONTRIBUTING.md` first. It has the ground rules and a map of the code.
 This file covers how to test and the Android surprises we already ran into, so you don't rediscover them.
 
@@ -36,7 +36,7 @@ You need:
 export PH_DEVICE=<ip>:<port>         # from `adb devices`
 dev/push.sh --install --samples      # first time: copy this checkout to the phone and install it
 dev/push.sh                          # after each change: copy and restart
-dev/phone.sh 'pockethost logs'       # run any command inside Termux
+dev/phone.sh 'pocketserver logs'       # run any command inside Termux
 PH_BASE=http://<phone-ip>:7777 PH_PASSWORD=<password> dev/api.sh GET /apps
 ```
 
@@ -44,11 +44,11 @@ PH_BASE=http://<phone-ip>:7777 PH_PASSWORD=<password> dev/api.sh GET /apps
 without the internet, enter that path as the repository. `crash` is supposed to fail.
 
 **Important caveat:** `dev/phone.sh` runs commands under a different Android security context than the Termux
-app (SELinux `runas_app`). So PocketHost started through it behaves differently:
+app (SELinux `runas_app`). So PocketServer started through it behaves differently:
 - Termux:API calls (battery) hang.
 - PostgreSQL's `initdb` hangs at `postgres --check`.
 
-To test those, run `pockethost restart` in the Termux app on the phone itself.
+To test those, run `pocketserver restart` in the Termux app on the phone itself.
 
 ### Before you finish a change
 
@@ -68,14 +68,14 @@ To test those, run `pockethost restart` in the Termux app on the phone itself.
   `ro.build.flavor`.
 - **Termux:API can fail for a while and then work again.** Battery readings retry with backoff instead of giving up.
 - **Android kills background processes** (the "phantom process killer", Android 12+). Fixes for users are in
-  `docs/android-setup.md` and `pockethost doctor`.
+  `docs/android-setup.md` and `pocketserver doctor`.
 - **Programs that refuse to run as the Android user.** Gitea/Forgejo check `RUN_USER`, so leave it out of
   app.ini. Forgejo reserves the username `admin`.
-- **Two PocketHost instances.** If one is already running, a second one exits with code 98 before touching
+- **Two PocketServer instances.** If one is already running, a second one exits with code 98 before touching
   anything. `killStale()` only runs after the port is bound, and the watchdog gives up after repeated 98s.
   Keep that order.
 - **`pkill -f pattern` can kill your own shell**, because the pattern is in its command line. Use the anchored
-  `pgrep` patterns in `bin/pockethost`.
+  `pgrep` patterns in `bin/pocketserver`.
 - **VS Code Remote-SSH doesn't support Android.** For editing over SSH, point people to the "SSH FS"
   extension or the code-server catalog app.
 - **Docker images run through `udocker`** (rootless, no daemon). It has no init system and no compose, so

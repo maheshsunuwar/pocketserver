@@ -66,7 +66,7 @@ await send('Page.navigate', { url: base + '/' }); await sleep(1500);
 if (password) {
   await shot('login');
   await send('Runtime.evaluate', { awaitPromise: true, expression:
-    `fetch('/api/login',{method:'POST',headers:{'content-type':'application/json','x-pockethost':'1'},body:JSON.stringify({password:${JSON.stringify(password)}})}).then(r=>r.status)` });
+    `fetch('/api/login',{method:'POST',headers:{'content-type':'application/json','x-pocketserver':'1'},body:JSON.stringify({password:${JSON.stringify(password)}})}).then(r=>r.status)` });
 }
 for (const [n, entry] of pages.entries()) {
   const [route, js] = entry.split('!!');

@@ -1,5 +1,5 @@
 'use strict';
-// Helper commands for bin/pockethost that touch state while the server is stopped.
+// Helper commands for bin/pocketserver that touch state while the server is stopped.
 const crypto = require('crypto');
 const fs = require('fs');
 const { state } = require('./store');
@@ -19,7 +19,7 @@ if (cmd === 'password') {
   }
   console.log(pw);
 } else if (cmd === 'url') {
-  const port = Number(process.env.POCKETHOST_PORT || state.settings.port || 7777);
+  const port = Number(process.env.POCKETSERVER_PORT || state.settings.port || 7777);
   const ips = U.localIPs();
   if (!ips.length) console.log(`http://localhost:${port}`);
   for (const ip of ips) console.log(`http://${ip.address}:${port}`);

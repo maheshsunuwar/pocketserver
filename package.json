@@ -1,5 +1,5 @@
 {
-  "name": "pockethost",
+  "name": "pocketserver",
   "version": "0.1.0",
   "description": "Turn any Android phone into a self-hosting server with a Coolify-style dashboard. No root, no Docker.",
   "license": "MIT",
@@ -8,10 +8,10 @@
     "node": ">=18.15"
   },
   "bin": {
-    "pockethost": "bin/pockethost"
+    "pocketserver": "bin/pocketserver"
   },
   "scripts": {
     "start": "node server/index.js",
-    "dev": "POCKETHOST_HOME=./.dev-data POCKETHOST_PORT=7799 node server/index.js"
+    "dev": "POCKETSERVER_HOME=./.dev-data POCKETSERVER_PORT=7799 node server/index.js"
   }
 }

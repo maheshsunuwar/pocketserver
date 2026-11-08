@@ -7,7 +7,7 @@ const net = require('net');
 const crypto = require('crypto');
 const { spawn, execFileSync } = require('child_process');
 
-const HOME = path.resolve(process.env.POCKETHOST_HOME || path.join(os.homedir(), '.pockethost'));
+const HOME = path.resolve(process.env.POCKETSERVER_HOME || path.join(os.homedir(), '.pocketserver'));
 const paths = {
   home: HOME,
   apps: path.join(HOME, 'apps'),

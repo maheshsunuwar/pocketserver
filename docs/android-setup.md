@@ -1,16 +1,16 @@
 # Phone setup: keeping your server running
 
-Android is built to save battery, so it stops apps working in the background. Do these steps once after installing PocketHost. Run `pockethost doctor` in Termux to see what applies to your phone.
+Android is built to save battery, so it stops apps working in the background. Do these steps once after installing PocketServer. Run `pocketserver doctor` in Termux to see what applies to your phone.
 
 ## 1. Let Termux run in the background
 
 **Settings → Apps → Termux → Battery → Unrestricted** (or "Don't optimize").
 
-`pockethost start` also takes a *wake lock*, so the CPU keeps running with the screen off. You'll see a Termux notification while it's active. Don't swipe it away.
+`pocketserver start` also takes a *wake lock*, so the CPU keeps running with the screen off. You'll see a Termux notification while it's active. Don't swipe it away.
 
 ## 2. Start automatically after a reboot
 
-Install **Termux:Boot** from the same place you got Termux (F-Droid or GitHub), then **open it once**. The PocketHost installer already created `~/.termux/boot/pockethost`.
+Install **Termux:Boot** from the same place you got Termux (F-Droid or GitHub), then **open it once**. The PocketServer installer already created `~/.termux/boot/pocketserver`.
 
 ## 3. Android 12 and newer: the "phantom process killer"
 

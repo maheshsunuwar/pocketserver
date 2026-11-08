@@ -1,19 +1,19 @@
 <p align="center"><img src="ui/icon.svg" width="72" alt=""></p>
 
-<h1 align="center">PocketHost</h1>
+<h1 align="center">PocketServer</h1>
 
 <p align="center"><b>Turn any Android phone into a self-hosting server, with a Coolify-style dashboard.</b><br>
 No root. No Docker. No wiping your phone.</p>
 
 ---
 
-That old phone in your drawer has an 8-core CPU, gigabytes of RAM, a battery backup and Wi-Fi. PocketHost turns it into a little server: deploy your apps from Git, run databases, and share them on the internet, all from a dashboard in your browser.
+That old phone in your drawer has an 8-core CPU, gigabytes of RAM, a battery backup and Wi-Fi. PocketServer turns it into a little server: deploy your apps from Git, run databases, and share them on the internet, all from a dashboard in your browser.
 
 ## Features
 
 - **One-click app catalog.** Syncthing, Navidrome, Gitea, Forgejo, Miniflux, Gotify, PocketBase, Dufs and Transmission run natively (Android builds from Termux), with an admin login generated for you. Uptime Kuma, Vaultwarden, Memos, ntfy, Actual, linkding and IT Tools run from their Docker images (experimental).
 - **Docker images, without Docker.** Paste an image name like `louislam/uptime-kuma:2` and it runs through [udocker](https://github.com/indigo-dc/udocker) (no root). Experimental: images that need to be PID 1 (s6-overlay, systemd) don't work, and there is no compose.
-- **Deploy from Git.** Paste a repo URL. PocketHost clones it, detects the stack, installs dependencies, builds and runs it.
+- **Deploy from Git.** Paste a repo URL. PocketServer clones it, detects the stack, installs dependencies, builds and runs it.
 - **Auto-detects** Node.js, Python (Django, Flask, FastAPI), Go, Rust, PHP, static sites, frontend builds (Vite, React, Angular…) and `Procfile`s. Missing runtimes are installed for you.
 - **Auto-deploy on push.** Checks your repo for new commits every 2 minutes, so it works behind any home router. Webhooks for GitHub, GitLab and Gitea are supported too.
 - **Keeps apps running.** Restarts on crash with backoff, brings everything back after a reboot, and shows live logs in the browser.
@@ -34,14 +34,14 @@ You need an Android phone (7.0 or newer) and Wi-Fi.
 2. Open Termux and run:
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/OWNER/pockethost/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/OWNER/pocketserver/main/install.sh | bash
    ```
 
 3. Open the address it prints (like `http://192.168.1.50:7777`) on your computer and log in with the password it shows.
 
 Then do the one-time [phone setup](docs/android-setup.md) so Android doesn't put your server to sleep. In short:
 - Set Termux battery usage to **Unrestricted**.
-- Install **Termux:Boot** so PocketHost starts after a reboot.
+- Install **Termux:Boot** so PocketServer starts after a reboot.
 - On Android 12+, lift the background process limit.
 
 ## Using it
@@ -64,19 +64,19 @@ Your app must listen on the port in the `PORT` environment variable, on `0.0.0.0
 ### Command line
 
 ```
-pockethost start | stop | restart | status
-pockethost logs          # PocketHost's own log
-pockethost password      # reset the dashboard password
-pockethost port 8080     # change the dashboard port
-pockethost doctor        # check your phone setup
-pockethost update
+pocketserver start | stop | restart | status
+pocketserver logs          # PocketServer's own log
+pocketserver password      # reset the dashboard password
+pocketserver port 8080     # change the dashboard port
+pocketserver doctor        # check your phone setup
+pocketserver update
 ```
 
 ## How it compares to Coolify
 
-Coolify runs everything in Docker. On Android, Docker needs root plus a custom kernel, because stock phone kernels leave out the container features (PID/IPC namespaces, device cgroups). PocketHost runs apps directly inside Termux instead:
+Coolify runs everything in Docker. On Android, Docker needs root plus a custom kernel, because stock phone kernels leave out the container features (PID/IPC namespaces, device cgroups). PocketServer runs apps directly inside Termux instead:
 
-| | Coolify | PocketHost |
+| | Coolify | PocketServer |
 |---|---|---|
 | Runs on | Linux server/VPS | Any Android phone (no root) |
 | Isolation | Docker containers | Separate processes and folders |
@@ -100,8 +100,8 @@ Coolify runs everything in Docker. On Android, Docker needs root plus a custom k
 ## Where things live
 
 ```
-~/pockethost/          PocketHost itself
-~/.pockethost/
+~/pocketserver/          PocketServer itself
+~/.pocketserver/
   state.json           settings, apps, databases (private)
   apps/<id>/src        your app's code
   databases/<id>/      database data
@@ -110,10 +110,10 @@ Coolify runs everything in Docker. On Android, Docker needs root plus a custom k
 
 ## Contributing
 
-PocketHost is deliberately simple: Node.js with no dependencies, and a no-build vanilla-JS dashboard.
+PocketServer is deliberately simple: Node.js with no dependencies, and a no-build vanilla-JS dashboard.
 
 ```sh
-git clone https://github.com/OWNER/pockethost && cd pockethost
+git clone https://github.com/OWNER/pocketserver && cd pocketserver
 npm run dev     # http://localhost:7799, data kept in ./.dev-data
 ```
 

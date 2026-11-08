@@ -1,6 +1,6 @@
-# Contributing to PocketHost
+# Contributing to PocketServer
 
-Thanks for helping. PocketHost aims to stay **small and dependency-free**, so it installs in seconds on any phone.
+Thanks for helping. PocketServer aims to stay **small and dependency-free**, so it installs in seconds on any phone.
 
 ## Ground rules
 
@@ -27,7 +27,7 @@ wireless debugging, then:
 export PH_DEVICE=<ip>:<port>        # from `adb devices`
 dev/push.sh --install --samples     # copy this checkout to the phone, install it, add sample repos
 dev/push.sh                         # after each change
-dev/phone.sh 'pockethost logs'      # run a command inside Termux
+dev/phone.sh 'pocketserver logs'      # run a command inside Termux
 ```
 
 `dev/api.sh` calls the dashboard API and `dev/screenshot.mjs` takes screenshots. `CLAUDE.md` explains the
@@ -50,7 +50,7 @@ anything Android-specific.
 | `server/tunnels.js` | Cloudflare quick tunnels and named tunnels |
 | `server/stats.js` | Phone stats with Android-safe fallbacks |
 | `ui/app.js` | The dashboard |
-| `bin/pockethost` | CLI and watchdog |
+| `bin/pocketserver` | CLI and watchdog |
 | `install.sh` | Termux installer |
 | `dev/` | Test scripts and sample apps for developing on a phone |
 

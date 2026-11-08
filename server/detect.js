@@ -94,7 +94,7 @@ function detect(dir) {
   let plan;
   if (has(dir, 'package.json')) plan = node(dir);
   else if (has(dir, 'requirements.txt') || has(dir, 'pyproject.toml')) plan = python(dir);
-  else if (has(dir, 'go.mod')) plan = { type: 'go', needs: ['go'], build: 'go build -o .pockethost-bin .', start: './.pockethost-bin' };
+  else if (has(dir, 'go.mod')) plan = { type: 'go', needs: ['go'], build: 'go build -o .pocketserver-bin .', start: './.pocketserver-bin' };
   else if (has(dir, 'Cargo.toml')) plan = rust(dir);
   else if (has(dir, 'composer.json') || has(dir, 'index.php') || has(dir, 'public/index.php')) plan = php(dir);
   else if (has(dir, 'index.html')) plan = { type: 'static', needs: [], staticDir: '.' };

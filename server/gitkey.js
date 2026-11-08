@@ -1,5 +1,5 @@
 'use strict';
-// One SSH key per PocketHost install, used to clone private repos. The user adds the public
+// One SSH key per PocketServer install, used to clone private repos. The user adds the public
 // half to GitHub/GitLab as a read-only "deploy key"; the private half never leaves the phone.
 const fs = require('fs');
 const os = require('os');
@@ -18,7 +18,7 @@ async function ensureKey() {
   fs.rmSync(keyFile, { force: true });
   fs.rmSync(keyFile + '.pub', { force: true });
   const host = (U.getprop('ro.product.model') || os.hostname()).replace(/[^\w.-]+/g, '-');
-  await U.run('ssh-keygen', ['-t', 'ed25519', '-N', '', '-C', `pockethost@${host}`, '-f', keyFile], { label: 'ssh-keygen' });
+  await U.run('ssh-keygen', ['-t', 'ed25519', '-N', '', '-C', `pocketserver@${host}`, '-f', keyFile], { label: 'ssh-keygen' });
 }
 
 async function publicKey() {
@@ -28,7 +28,7 @@ async function publicKey() {
 
 const isSshUrl = (url) => /^(git@|ssh:\/\/)/.test(url) || /^[\w.-]+@[\w.-]+:/.test(url);
 
-/** Environment for git commands. SSH URLs use PocketHost's key and remember the host on first use. */
+/** Environment for git commands. SSH URLs use PocketServer's key and remember the host on first use. */
 async function env(url) {
   const e = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
   if (isSshUrl(url)) {
@@ -54,14 +54,14 @@ function explain(err, url) {
   const out = `${err.output || ''}\n${err.message}`;
   if (/Repository not found|returned error: 404/i.test(out)) {
     const ssh = isSshUrl(url) ? null : sshUrlFor(url);
-    return new Error(`${err.message}. The repository wasn't found. Check the address. If it's private, ${ssh ? `use ${ssh} and ` : ''}add PocketHost's SSH key to it (Settings → Git access).`);
+    return new Error(`${err.message}. The repository wasn't found. Check the address. If it's private, ${ssh ? `use ${ssh} and ` : ''}add PocketServer's SSH key to it (Settings → Git access).`);
   }
   if (/Permission denied \(publickey\)|Could not read from remote repository|Host key verification failed/i.test(out)) {
-    return new Error(`${err.message}. Git couldn't log in. Add PocketHost's SSH key to the repository (Settings → Git access on this dashboard), then redeploy.`);
+    return new Error(`${err.message}. Git couldn't log in. Add PocketServer's SSH key to the repository (Settings → Git access on this dashboard), then redeploy.`);
   }
   if (/could not read Username|Authentication failed|terminal prompts disabled|returned error: 40[13]/i.test(out)) {
     const ssh = sshUrlFor(url);
-    return new Error(`${err.message}. The repository wasn't found or is private.${ssh ? ` For a private repo use ${ssh} and add PocketHost's SSH key to it (Settings → Git access).` : ''}`);
+    return new Error(`${err.message}. The repository wasn't found or is private.${ssh ? ` For a private repo use ${ssh} and add PocketServer's SSH key to it (Settings → Git access).` : ''}`);
   }
   return err;
 }

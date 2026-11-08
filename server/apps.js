@@ -17,7 +17,7 @@ const POLL_MS = 2 * 60 * 1000;
 const appDir = (id) => path.join(U.paths.apps, id);
 const srcDir = (id) => path.join(appDir(id), 'src');
 const dataDir = (id) => path.join(appDir(id), 'data');
-const containerName = (id) => `pockethost-${id}`;
+const containerName = (id) => `pocketserver-${id}`;
 const lanUrl = (port) => `http://${(U.localIPs()[0] || {}).address || 'localhost'}:${port}`;
 const deploying = new Set();
 const pending = new Set();
@@ -220,7 +220,7 @@ async function runStep(cmd, label, cwd, env, log) {
 
 function envFor(a, cwd, plan, runtime) {
   const env = { ...process.env };
-  for (const k of Object.keys(env)) if (k.startsWith('POCKETHOST_')) delete env[k];
+  for (const k of Object.keys(env)) if (k.startsWith('POCKETSERVER_')) delete env[k];
   env.PORT = String(a.port);
   env.HOST = '0.0.0.0';
   env.APP_DATA = dataDir(a.id); // private folder that survives redeploys
@@ -508,7 +508,7 @@ async function pollOnce() {
 }
 setInterval(pollOnce, 30000).unref();
 
-/** On PocketHost start: bring back everything that was running. */
+/** On PocketServer start: bring back everything that was running. */
 function restore() {
   for (const a of Object.values(state.apps)) {
     delete a.repoChanged;
