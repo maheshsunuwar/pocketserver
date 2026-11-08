@@ -44,6 +44,15 @@ Then do the one-time [phone setup](docs/android-setup.md) so Android doesn't put
 - Install **Termux:Boot** so PocketServer starts after a reboot.
 - On Android 12+, lift the background process limit.
 
+### Tested phones
+
+| Phone | Android | Notes |
+|---|---|---|
+| Samsung Galaxy S26+ | One UI (stock) | Works without developer mode |
+| OnePlus 7T Pro | LineageOS (Android 17) | |
+
+Tried it on another phone? [Open an issue](https://github.com/maheshsunuwar/pocketserver/issues) with the model and Android version, and we'll add it.
+
 ## Using it
 
 | Task | How |
