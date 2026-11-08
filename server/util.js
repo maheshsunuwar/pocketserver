@@ -8,6 +8,9 @@ const crypto = require('crypto');
 const { spawn, execFileSync } = require('child_process');
 
 const HOME = path.resolve(process.env.POCKETSERVER_HOME || path.join(os.homedir(), '.pocketserver'));
+// Home and local networks: private IPv4 ranges, Tailscale/CGNAT, and IPv6 unique-local/link-local.
+// Used to keep "Wi-Fi only" services from accepting connections from the internet.
+const PRIVATE_NETS = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '127.0.0.0/8', 'fc00::/7', 'fe80::/10', '::1/128'];
 const paths = {
   home: HOME,
   apps: path.join(HOME, 'apps'),
@@ -145,5 +148,5 @@ function getprop(name) {
 
 module.exports = {
   paths, isTermux, SHELL, PREFIX, sleep, id, secret, slug, HttpError, bad,
-  lines, run, sh, which, portFree, portOpen, waitPort, localIPs, getprop,
+  lines, run, sh, which, portFree, portOpen, waitPort, localIPs, getprop, PRIVATE_NETS,
 };

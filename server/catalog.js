@@ -70,10 +70,12 @@ const RECIPES = [
     description: 'Your own music streaming server, compatible with Subsonic apps.',
     website: 'https://www.navidrome.org',
     kind: 'native', packages: ['navidrome'],
-    env: { MUSIC_FOLDER: '{{data}}/music' },
+    // Creates the admin account on first start, so nobody else on the network can claim it first.
+    env: { MUSIC_FOLDER: '{{data}}/music', ND_DEVAUTOCREATEADMINPASSWORD: '{{password}}' },
+    credentials: { username: 'admin' },
     install: 'mkdir -p "$MUSIC_FOLDER"',
     start: 'exec navidrome --address 0.0.0.0 --port "$PORT" --datafolder "$APP_DATA" --musicfolder "$MUSIC_FOLDER"',
-    notes: 'You create the admin account on first visit. Put music in the MUSIC_FOLDER shown in Environment, or point it at ~/storage/music after running termux-setup-storage.',
+    notes: 'Put music in the MUSIC_FOLDER shown in Environment, or point it at ~/storage/music after running termux-setup-storage.',
   },
   { id: 'gitea', name: 'Gitea', icon: '🍵', category: 'Developer', description: 'Lightweight GitHub-style Git hosting: repos, issues, pull requests.', website: 'https://about.gitea.com', ...giteaLike('gitea', 'Gitea', 'admin') },
   { id: 'forgejo', name: 'Forgejo', icon: '🔨', category: 'Developer', description: 'Community-run Git hosting (a Gitea fork): repos, issues, pull requests.', website: 'https://forgejo.org', ...giteaLike('forgejo', 'Forgejo', 'owner') },
@@ -166,7 +168,7 @@ EOF`,
     website: 'https://uptime.kuma.pet',
     kind: 'docker', image: 'louislam/uptime-kuma:2', containerPort: null,
     env: { UPTIME_KUMA_PORT: '{{port}}', UPTIME_KUMA_HOST: '0.0.0.0' }, volumes: ['/app/data'],
-    notes: 'You create the admin account on first visit.',
+    claim: true,
   },
   {
     id: 'vaultwarden', name: 'Vaultwarden', icon: '🔐', category: 'Security',
@@ -182,14 +184,7 @@ EOF`,
     website: 'https://usememos.com',
     kind: 'docker', image: 'neosmemo/memos:stable', containerPort: null,
     env: { MEMOS_PORT: '{{port}}', MEMOS_MODE: 'prod' }, volumes: ['/var/opt/memos'],
-    notes: 'The first account you create becomes the admin.',
-  },
-  {
-    id: 'ntfy', name: 'ntfy', icon: '📣', category: 'Notifications',
-    description: 'Send notifications to your phone or desktop with a simple HTTP request.',
-    website: 'https://ntfy.sh',
-    kind: 'docker', image: 'binwiederhier/ntfy:latest', containerPort: null, command: 'serve',
-    env: { NTFY_LISTEN_HTTP: ':{{port}}', NTFY_CACHE_FILE: '/var/cache/ntfy/cache.db', NTFY_BASE_URL: '{{url}}' }, volumes: ['/var/cache/ntfy'],
+    claim: true,
   },
   {
     id: 'actual', name: 'Actual Budget', icon: '💰', category: 'Finance',
@@ -197,6 +192,7 @@ EOF`,
     website: 'https://actualbudget.org',
     kind: 'docker', image: 'actualbudget/actual-server:latest', containerPort: null,
     env: { ACTUAL_PORT: '{{port}}' }, volumes: ['/data'],
+    claim: true,
     notes: 'Actual needs HTTPS in the browser. Turn on a public URL and open it from there.',
   },
   {
@@ -218,7 +214,7 @@ EOF`,
 function publicView(r) {
   return {
     id: r.id, name: r.name, icon: r.icon, category: r.category, description: r.description, website: r.website,
-    kind: r.kind, needsDb: r.db ? r.db.type : null, notes: r.notes || null, image: r.image || null,
+    kind: r.kind, needsDb: r.db ? r.db.type : null, notes: r.notes || null, image: r.image || null, claim: !!r.claim,
   };
 }
 const list = () => RECIPES.map(publicView);
@@ -251,7 +247,8 @@ async function install(id, input = {}) {
         a.dependsOn = [db.id];
       }
       a.packages = r.packages || [];
-      a.catalog = { id: r.id, notes: r.notes || null };
+      // claim: the app gives admin rights to whoever opens it first. The dashboard warns about it.
+      a.catalog = { id: r.id, notes: r.notes || null, claim: !!r.claim };
       if (r.credentials) a.credentials = { username: r.credentials.username, password, path: r.credentials.path || '' };
     },
   });

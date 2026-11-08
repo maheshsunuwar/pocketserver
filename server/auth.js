@@ -1,5 +1,10 @@
 'use strict';
-// Single-admin password login with session cookies.
+// Single-admin password login.
+//
+// A session needs two secrets: an HttpOnly cookie and a "key" the dashboard keeps in localStorage
+// and sends as a header. Browsers send cookies to every port on a host, so the cookie alone would
+// reach any app running on the phone (10.0.0.5:3001 gets the cookie for 10.0.0.5:7777). localStorage
+// is per origin, port included, so other apps can't read the key.
 const fs = require('fs');
 const crypto = require('crypto');
 const { state, save, flush } = require('./store');
@@ -46,23 +51,29 @@ function cookies(req) {
   }
   return out;
 }
+/** Returns the cookie token and the key. Only their hashes are stored. */
 function createSession() {
   const token = crypto.randomBytes(32).toString('hex');
-  state.sessions[sha(token)] = Date.now();
+  const key = crypto.randomBytes(32).toString('hex');
+  state.sessions[sha(token)] = { at: Date.now(), key: sha(key) };
   save();
-  return token;
+  return { token, key };
 }
 function sessionCookie(token, maxAge = SESSION_DAYS * 86400) {
   return `ph_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
 }
-function isLoggedIn(req) {
+/** The key comes from the x-pocketserver-key header, or for live logs (EventSource can't set headers) the k query parameter. */
+function isLoggedIn(req, query) {
   const token = cookies(req).ph_session;
-  if (!token) return false;
-  const key = sha(token);
-  const created = state.sessions[key];
-  if (!created) return false;
-  if (Date.now() - created > SESSION_DAYS * 86400e3) { delete state.sessions[key]; save(); return false; }
-  return true;
+  const key = req.headers['x-pocketserver-key'] || (query && query.get('k'));
+  if (!token || typeof key !== 'string' || !key) return false;
+  const id = sha(token);
+  const s = state.sessions[id];
+  if (!s || typeof s !== 'object') return false; // sessions from older versions had no key
+  if (Date.now() - s.at > SESSION_DAYS * 86400e3) { delete state.sessions[id]; save(); return false; }
+  const a = Buffer.from(sha(key), 'hex');
+  const b = Buffer.from(s.key, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 function logout(req) {
   const token = cookies(req).ph_session;

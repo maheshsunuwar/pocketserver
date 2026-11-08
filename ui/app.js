@@ -25,10 +25,17 @@ function fill(el, ...kids) {
   return el;
 }
 
+// The session key (see server/auth.js). Kept per origin, so apps on the phone's other ports can't read it.
+let memoryKey = '';
+const sessionKey = {
+  get() { try { return localStorage.getItem('ps_key') || ''; } catch { return memoryKey; } },
+  set(k) { memoryKey = k || ''; try { if (k) localStorage.setItem('ps_key', k); else localStorage.removeItem('ps_key'); } catch {} },
+};
+
 async function api(method, url, body) {
   const res = await fetch('/api' + url, {
     method,
-    headers: { 'content-type': 'application/json', 'x-pocketserver': '1' },
+    headers: { 'content-type': 'application/json', 'x-pocketserver': '1', 'x-pocketserver-key': sessionKey.get() },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: 'same-origin',
   });
@@ -190,7 +197,7 @@ function showShell() {
       h('nav', { class: 'nav' },
         h('a', { href: '#/', 'data-r': 'home', title: 'Dashboard' }, icon('home'), h('span', null, 'Dashboard')),
         h('a', { href: '#/settings', 'data-r': 'settings', title: 'Settings' }, icon('gear'), h('span', null, 'Settings')),
-        h('button', { title: 'Log out', onclick: async () => { await api('POST', '/logout').catch(() => {}); showLogin(); } }, icon('logout'), h('span', null, 'Log out')))),
+        h('button', { title: 'Log out', onclick: async () => { await api('POST', '/logout').catch(() => {}); sessionKey.set(''); showLogin(); } }, icon('logout'), h('span', null, 'Log out')))),
     h('main', { id: 'main' }));
   api('GET', '/settings').then((st) => { const el = document.getElementById('device-name'); if (el) el.textContent = st.device.name; }).catch(() => {});
 }
@@ -207,7 +214,8 @@ function showLogin() {
     onsubmit: busy(btn, async () => {
       err.textContent = '';
       try {
-        await api('POST', '/login', { password: pw.value });
+        const r = await api('POST', '/login', { password: pw.value });
+        sessionKey.set(r.key);
         showShell();
         router();
       } catch (e) { err.textContent = e.message; pw.select(); }
@@ -435,6 +443,7 @@ function installDialog(r) {
   h('p', { class: 'muted' }, r.description, ' ', r.website ? h('a', { href: r.website, target: '_blank', rel: 'noopener' }, 'Website') : null),
   r.kind === 'docker' ? h('div', { class: 'banner', style: 'margin:0 0 14px' }, `Runs the ${r.image} Docker image through udocker. This is experimental: the first install downloads the image and can take several minutes, and it uses more memory than native apps.`) : null,
   r.needsDb ? h('p', { class: 'muted' }, 'A PostgreSQL database will be created for it.') : null,
+  r.claim ? h('div', { class: 'banner', style: 'margin:0 0 14px' }, CLAIM_TEXT) : null,
   r.notes ? h('p', { class: 'faint' }, r.notes) : null,
   field('Name', name),
   h('div', { class: 'form-actions' }, btn, h('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'))));
@@ -541,7 +550,7 @@ function sourceForm(source) {
 // Many programs log everything to stderr, so stderr alone isn't shown as an error. Lines that look
 // like errors or warnings are highlighted instead.
 function lineTone(l) {
-  if (l.s === 'sys') return /^✗|failed|error/i.test(l.m) ? 'bad' : 'sys';
+  if (l.s === 'sys') return /^✗/.test(l.m) ? 'bad' : 'sys';
   if (/\b(level=(error|fatal)|error|fatal|panic|exception|traceback|segfault|ERR!)\b|^✗/i.test(l.m) && !/\b(level=(info|debug)|0 errors?|no errors?)\b/i.test(l.m)) return 'bad';
   if (/\b(level=warn(ing)?|warn(ing)?|deprecated)\b/i.test(l.m) && !/level=(info|debug)/i.test(l.m)) return 'warn';
   return 'out';
@@ -558,7 +567,7 @@ function logPanel(key, { onStatus } = {}) {
     while (term.childNodes.length > 2000) term.firstChild.remove();
     if (follow) term.scrollTop = term.scrollHeight;
   };
-  const es = new EventSource('/api/logs/' + encodeURIComponent(key));
+  const es = new EventSource('/api/logs/' + encodeURIComponent(key) + '?k=' + encodeURIComponent(sessionKey.get()));
   es.addEventListener('history', (e) => {
     term.replaceChildren();
     const arr = JSON.parse(e.data);
@@ -624,10 +633,25 @@ async function AppPage(v, id, tab) {
   if (tab === 'env') body = appEnvTab(a);
   else if (tab === 'public') body = appPublicTab(a, refresh);
   else if (tab === 'settings') body = appSettingsTab(a);
-  else body = h('div', null, appInfo(a), deployInfo(a), logPanel(id, { onStatus: refresh }));
+  else body = h('div', null, claimBanner(a), appInfo(a), deployInfo(a), logPanel(id, { onStatus: refresh }));
 
   v.render(h('div', null, head, body));
   every(3000, refresh);
+}
+
+const CLAIM_TEXT = 'This app gives admin rights to whoever opens it first. Open it right after installing and create your account, before anyone else on your Wi-Fi does, and before turning on a public URL.';
+// Remembered per browser: whether you said you've created your account in a "first visitor is admin" app.
+const claimed = {
+  has(id) { try { return localStorage.getItem('ps_claimed_' + id) === '1'; } catch { return false; } },
+  set(id) { try { localStorage.setItem('ps_claimed_' + id, '1'); } catch {} },
+};
+function claimBanner(a) {
+  if (!a.catalog || !a.catalog.claim || claimed.has(a.id)) return null;
+  const box = h('div', { class: 'banner' },
+    h('span', { style: 'flex:1;min-width:200px' }, h('strong', null, 'Create your account now. '), 'Until you do, anyone on your Wi-Fi who opens this app first becomes its admin.'),
+    a.status === 'running' ? h('a', { class: 'btn small', href: lanUrl(a.port), target: '_blank', rel: 'noopener' }, 'Open', icon('out')) : null,
+    h('button', { class: 'btn small ghost', onclick: () => { claimed.set(a.id); box.remove(); } }, 'I\'ve created it'));
+  return box;
 }
 
 /** Login details and notes for apps installed from the catalog. */
@@ -673,6 +697,9 @@ function appPublicTab(a, refresh) {
   const pub = a.public || {};
   const toggle = h('button', { class: 'btn ' + (pub.enabled ? '' : 'primary') }, pub.enabled ? 'Turn off public URL' : 'Get a free public URL');
   toggle.addEventListener('click', busy(toggle, async () => {
+    if (!pub.enabled && a.catalog && a.catalog.claim && !claimed.has(a.id)
+      && !confirm('Anyone on the internet who opens this app before you create your account becomes its admin. Have you created your account?')) return;
+    if (!pub.enabled && a.catalog && a.catalog.claim) claimed.set(a.id);
     await api('POST', `/apps/${a.id}/public`, { enabled: !pub.enabled });
     toast(pub.enabled ? 'Public URL turned off' : 'Starting tunnel… the address appears in a few seconds', 'ok');
     router();
@@ -1147,7 +1174,8 @@ async function Settings(v) {
     class: 'card',
     onsubmit: busy(pwBtn, async () => {
       if (pw.value !== pw2.value) throw new Error("The new passwords don't match.");
-      await api('POST', '/settings/password', { current: cur.value, password: pw.value });
+      const r = await api('POST', '/settings/password', { current: cur.value, password: pw.value });
+      sessionKey.set(r.key);
       toast('Password changed. Other devices were logged out.', 'ok');
       cur.value = pw.value = pw2.value = '';
     }),
@@ -1254,7 +1282,7 @@ function sshCard() {
 window.addEventListener('hashchange', () => { if (shellShown) router(); });
 (async () => {
   try {
-    const me = await fetch('/api/me', { credentials: 'same-origin' }).then((r) => r.json());
+    const me = await fetch('/api/me', { credentials: 'same-origin', headers: { 'x-pocketserver-key': sessionKey.get() } }).then((r) => r.json());
     if (!me.loggedIn) { showLogin(); return; }
     showShell();
     router();

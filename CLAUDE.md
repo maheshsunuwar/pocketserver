@@ -57,6 +57,18 @@ To test those, run `pocketserver restart` in the Termux app on the phone itself.
 - For UI changes, take screenshots at 390 and 1280 width and check the console output.
 - For anything Android-specific, test on a phone and say in the PR what you tested there.
 
+## Security decisions (don't undo)
+
+- **Login needs a cookie and a key.** Browsers send cookies to every port on a host, so apps on the phone
+  receive the dashboard's cookie. The second secret lives in localStorage (per origin, port included)
+  and is sent as `x-pocketserver-key`. Live logs pass it as `?k=`, because EventSource can't set
+  headers. Only that route accepts it in the URL. See `server/auth.js`.
+- **"Wi-Fi only" means private networks.** `U.PRIVATE_NETS` limits SSH (`AllowUsers`) and PostgreSQL
+  (`pg_hba.conf`), so a public IPv6 address doesn't expose them.
+- **Catalog apps must not be claimable by the first visitor.** Generate an admin password if the app
+  allows it (see Navidrome's `ND_DEVAUTOCREATEADMINPASSWORD`). If it can't, set `claim: true` so the
+  dashboard warns. Apps with no login at all (like ntfy's default setup) don't go in the catalog.
+
 ## Android and Termux surprises (already solved, don't undo)
 
 - **Node fails with "CANNOT LINK EXECUTABLE" on a fresh Termux.** Packages are out of date. `install.sh` runs

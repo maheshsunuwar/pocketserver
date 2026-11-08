@@ -11,7 +11,7 @@ That old phone in your drawer has an 8-core CPU, gigabytes of RAM, a battery bac
 
 ## Features
 
-- **One-click app catalog.** Syncthing, Navidrome, Gitea, Forgejo, Miniflux, Gotify, PocketBase, Dufs and Transmission run natively (Android builds from Termux), with an admin login generated for you. Uptime Kuma, Vaultwarden, Memos, ntfy, Actual, linkding and IT Tools run from their Docker images (experimental).
+- **One-click app catalog.** Syncthing, Navidrome, Gitea, Forgejo, Miniflux, Gotify, PocketBase, Dufs and Transmission run natively (Android builds from Termux), with an admin login generated for you. Uptime Kuma, Vaultwarden, Memos, Actual, linkding and IT Tools run from their Docker images (experimental).
 - **Docker images, without Docker.** Paste an image name like `louislam/uptime-kuma:2` and it runs through [udocker](https://github.com/indigo-dc/udocker) (no root). Experimental: images that need to be PID 1 (s6-overlay, systemd) don't work, and there is no compose.
 - **Deploy from Git.** Paste a repo URL. PocketServer clones it, detects the stack, installs dependencies, builds and runs it.
 - **Auto-detects** Node.js, Python (Django, Flask, FastAPI), Go, Rust, PHP, static sites, frontend builds (Vite, React, Angular…) and `Procfile`s. Missing runtimes are installed for you.
@@ -94,10 +94,14 @@ Coolify runs everything in Docker. On Android, Docker needs root plus a custom k
 
 ## Security
 
-- The dashboard is protected by a password: scrypt-hashed, rate-limited logins, HttpOnly SameSite cookies and a header-based CSRF check.
-- It's only reachable on your local network unless you choose to expose it through a tunnel.
-- Databases listen on `localhost` only, unless you turn on Wi-Fi access.
+- The dashboard is protected by a password: scrypt-hashed and rate-limited. A session needs both an HttpOnly cookie and a key that only the dashboard's own page can read, so apps running on the phone's other ports can't reuse your login.
+- It's reachable on whatever network the phone is on (your Wi-Fi, a café's Wi-Fi, its hotspot), not from the internet, unless you expose it through a tunnel. On networks you don't trust, use Tailscale or a tunnel, which use HTTPS.
+- Databases listen on `localhost` only and always require a password. "Wi-Fi access" opens them to local networks only.
+- SSH is off until you turn it on. It accepts only the keys you add (never passwords) and only from local networks and Tailscale.
+- Catalog apps get a generated admin password where the app supports it. The few that give admin rights to their first visitor are marked, and the dashboard reminds you to create your account first.
+- Apps you deploy yourself have no login unless you add one, so anyone on your network can open them.
 - Apps run as the Termux user inside Android's app sandbox. They can't touch other apps' data, but they can see each other's files. Only deploy code you trust.
+- Anyone with adb access to the phone (USB or wireless debugging) can read Termux's files. Turn wireless debugging off when you don't need it.
 - Report security issues privately (see [SECURITY.md](SECURITY.md)).
 
 ## Where things live

@@ -1,6 +1,6 @@
 'use strict';
 // Optional SSH server, so you can edit app files from VS Code (SSH FS / SFTP) or open a terminal.
-// Runs its own sshd with its own config: key logins only, keys managed from the dashboard.
+// Runs its own sshd with its own config: key logins only, from local networks only, keys managed from the dashboard.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -41,6 +41,8 @@ function writeConfig(c) {
     'PermitEmptyPasswords no',
     'StrictModes no', // Termux home folders don't have the permissions sshd expects
     'PrintMotd no',
+    // Only home/local networks (and Tailscale) can log in, even if the phone ends up with a public IPv6 address.
+    `AllowUsers ${U.PRIVATE_NETS.map((n) => `*@${n}`).join(' ')}`,
     `Subsystem sftp ${sftp}`,
   ].join('\n') + '\n', { mode: 0o600 });
   return hostKey;
@@ -104,4 +106,4 @@ function change(c, input) {
 
 function restore() { if (conf().enabled) apply().catch((e) => S.log(KEY, `✗ ${e.message}`, 'err')); }
 
-module.exports = { view, update, restore, KEY, _test: { parseKey } };
+module.exports = { view, update, restore, KEY, _test: { parseKey, writeConfig } };

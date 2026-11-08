@@ -29,6 +29,19 @@ const TYPES = {
         throw e;
       } finally { fs.rmSync(pwfile, { force: true }); }
     },
+    // initdb only allows connections from the phone itself. For Wi-Fi access, PostgreSQL also needs
+    // a pg_hba.conf rule, so keep a marked block in it that matches the setting.
+    beforeStart(d, dir) {
+      const file = path.join(dir, 'data', 'pg_hba.conf');
+      if (!fs.existsSync(file)) return;
+      const begin = '# --- PocketServer: Wi-Fi access ---';
+      const end = '# --- end PocketServer ---';
+      let text = fs.readFileSync(file, 'utf8');
+      const re = new RegExp(`\\n?${begin}[\\s\\S]*?${end}\\n?`);
+      text = text.replace(re, '\n');
+      if (d.lan) text = text.replace(/\n*$/, '\n') + [begin, ...U.PRIVATE_NETS.map((n) => `host all all ${n} scram-sha-256`), end, ''].join('\n');
+      fs.writeFileSync(file, text, { mode: 0o600 });
+    },
     cmd: (d, dir) => `exec postgres -D ${q(path.join(dir, 'data'))} -p ${d.port} -k ${q(dir)} -c listen_addresses=${d.lan ? "'*'" : 'localhost'}`,
     async setup(d, dir, log) {
       await U.run('psql', ['-h', '127.0.0.1', '-p', String(d.port), '-U', 'postgres', '-c', `CREATE DATABASE "${d.dbName}"`],
@@ -123,6 +136,7 @@ async function start(id) {
       fs.rmSync(path.join(dir, 'data'), { recursive: true, force: true });
       await t.init(d, dir, log);
     }
+    if (t.beforeStart) t.beforeStart(d, dir);
     S.start(id, { cmd: t.cmd(d, dir), cwd: dir, env: process.env });
     if (!await U.waitPort(d.port, 60000, () => S.info(id).status !== 'stopped')) throw new Error(`${t.label} didn't start listening on port ${d.port}. See the logs.`);
     if (!d.initialized) {

@@ -60,7 +60,8 @@ route('POST', '/api/login', async (req, res, p, body) => {
     throw new U.HttpError(401, 'Wrong password.');
   }
   auth.clearFailures(ip);
-  send(res, 200, { ok: true }, { 'set-cookie': auth.sessionCookie(auth.createSession()) });
+  const { token, key } = auth.createSession();
+  send(res, 200, { ok: true, key }, { 'set-cookie': auth.sessionCookie(token) });
 }, { auth: false });
 
 route('POST', '/api/logout', async (req, res) => {
@@ -141,7 +142,8 @@ route('GET', '/api/settings', async () => ({
 route('POST', '/api/settings/password', async (req, res, p, body) => {
   if (!auth.verify(body.current)) throw new U.HttpError(400, 'Your current password is wrong.');
   auth.setPassword(body.password);
-  send(res, 200, { ok: true }, { 'set-cookie': auth.sessionCookie(auth.createSession()) });
+  const { token, key } = auth.createSession();
+  send(res, 200, { ok: true, key }, { 'set-cookie': auth.sessionCookie(token) });
 });
 route('GET', '/api/settings/git-key', async () => ({ publicKey: await gitkey.publicKey() }));
 route('GET', '/api/settings/ssh', async () => ({ ...sshd.view(), ips: U.localIPs() }));
@@ -198,7 +200,7 @@ const server = http.createServer(async (req, res) => {
     if (!pathname.startsWith('/api/')) { serveUi(req, res, pathname); return; }
 
     if (req.method === 'GET' && pathname.startsWith('/api/logs/')) {
-      if (!auth.isLoggedIn(req)) throw new U.HttpError(401, 'Please log in.');
+      if (!auth.isLoggedIn(req, url.searchParams)) throw new U.HttpError(401, 'Please log in.');
       streamLogs(req, res, decodeURIComponent(pathname.slice('/api/logs/'.length)));
       return;
     }
