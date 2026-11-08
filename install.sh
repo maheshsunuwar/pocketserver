@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # PocketServer installer for Termux (Android). Also works on regular Linux/macOS for development.
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/pocketserver/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/maheshsunuwar/pocketserver/main/install.sh | bash
 set -euo pipefail
 
-REPO="${POCKETSERVER_REPO:-https://github.com/OWNER/pocketserver.git}"
+REPO="${POCKETSERVER_REPO:-https://github.com/maheshsunuwar/pocketserver.git}"
 BRANCH="${POCKETSERVER_BRANCH:-main}"
 DEST="${POCKETSERVER_DIR:-$HOME/pocketserver}"
 

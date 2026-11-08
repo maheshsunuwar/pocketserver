@@ -34,7 +34,7 @@ You need an Android phone (7.0 or newer) and Wi-Fi.
 2. Open Termux and run:
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/OWNER/pocketserver/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/maheshsunuwar/pocketserver/main/install.sh | bash
    ```
 
 3. Open the address it prints (like `http://192.168.1.50:7777`) on your computer and log in with the password it shows.
@@ -113,7 +113,7 @@ Coolify runs everything in Docker. On Android, Docker needs root plus a custom k
 PocketServer is deliberately simple: Node.js with no dependencies, and a no-build vanilla-JS dashboard.
 
 ```sh
-git clone https://github.com/OWNER/pocketserver && cd pocketserver
+git clone https://github.com/maheshsunuwar/pocketserver && cd pocketserver
 npm run dev     # http://localhost:7799, data kept in ./.dev-data
 ```
 
