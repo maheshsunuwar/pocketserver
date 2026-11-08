@@ -152,14 +152,29 @@ cmd_doctor() {
 }
 
 cmd_uninstall() {
-  say "This removes PocketServer, ${c_bold}all your apps, databases and their data${c_off}."
-  read -r -p "Type 'delete' to continue: " a
-  [ "$a" = "delete" ] || { say "Cancelled."; exit 0; }
-  cmd_stop || true
-  rm -rf "$PH_HOME" "$HOME/.termux/boot/pocketserver"
+  say "This removes PocketServer and ${c_bold}all your apps, databases and their data${c_off}:"
+  say "  $PH_HOME"
+  local default_dir="${POCKETSERVER_DIR:-$HOME/pocketserver}"
+  [ "$ROOT" = "$default_dir" ] && say "  $ROOT"
+  if [ "${1:-}" != "--yes" ]; then
+    read -r -p "Type 'delete' to continue: " a
+    [ "$a" = "delete" ] || { say "Cancelled."; exit 0; }
+  fi
+  cmd_stop >/dev/null 2>&1 || true
+  # Containers made for Docker apps. Downloaded images are shared with other udocker use, so they stay.
+  if command -v udocker >/dev/null; then
+    udocker ps 2>/dev/null | grep -oE '(pocketserver|pockethost)-[0-9a-f]+' | sort -u | while read -r c; do udocker rm "$c" >/dev/null 2>&1 || true; done
+  fi
+  rm -rf "$PH_HOME"
+  [ -L "$HOME/.pockethost" ] && rm -f "$HOME/.pockethost"
+  rm -f "$HOME/.termux/boot/pocketserver" "$HOME/.local/bin/pocketserver"
   [ -n "${PREFIX:-}" ] && rm -f "$PREFIX/bin/pocketserver"
-  rm -rf "$ROOT"
+  # Only delete the code if it's the installed copy, never a checkout someone is working in.
+  if [ "$ROOT" = "$default_dir" ]; then rm -rf "$ROOT"; else say "Left the code at $ROOT (it isn't the installed copy)."; fi
   ok "PocketServer removed."
+  say ""
+  say "Packages it installed (Node.js, git, databases, app runtimes) are still there, since other"
+  say "things may use them. See docs/uninstall.md to remove those too."
 }
 
 cmd_help() {
@@ -175,7 +190,7 @@ ${c_bold}PocketServer${c_off} — your phone, your server.
   pocketserver port <n>     Change the dashboard port (default 7777)
   pocketserver doctor       Check your setup
   pocketserver update       Update to the latest version
-  pocketserver uninstall    Remove PocketServer and all its data
+  pocketserver uninstall    Remove PocketServer and all its data (--yes skips the question)
 EOF
 }
 
@@ -189,7 +204,7 @@ case "${1:-help}" in
   port) shift; cmd_port "$@" ;;
   update) cmd_update ;;
   doctor) cmd_doctor ;;
-  uninstall) cmd_uninstall ;;
+  uninstall) cmd_uninstall "${2:-}" ;;
   _watchdog) cmd__watchdog ;;
   help|-h|--help) cmd_help ;;
   *) fail "Unknown command: $1"; cmd_help; exit 1 ;;

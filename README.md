@@ -70,7 +70,10 @@ pocketserver password      # reset the dashboard password
 pocketserver port 8080     # change the dashboard port
 pocketserver doctor        # check your phone setup
 pocketserver update
+pocketserver uninstall     # remove PocketServer and all its data
 ```
+
+To also remove the packages it installed, see [docs/uninstall.md](docs/uninstall.md).
 
 ## How it compares to Coolify
 

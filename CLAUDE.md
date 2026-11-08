@@ -20,7 +20,8 @@ This file covers how to test and the Android surprises we already ran into, so y
 ```sh
 npm run dev                                     # http://127.0.0.1:7799, data in ./.dev-data
 dev/api.sh GET /apps                            # API call; logs in with .dev-data/initial-password
-node dev/screenshot.mjs --width 390 apps settings   # screenshots + prints any JS errors
+node dev/screenshot.mjs --width 390 apps settings   # screenshots + prints any JS errors (--theme dark|light)
+node dev/preview.mjs http://<phone-ip>:7777         # this checkout's ui/ with a phone's real data, on :7788
 ```
 
 macOS and Linux both work. Things that only exist on Android (Termux packages, battery, `getprop`) are skipped.

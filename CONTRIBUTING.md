@@ -30,7 +30,8 @@ dev/push.sh                         # after each change
 dev/phone.sh 'pocketserver logs'      # run a command inside Termux
 ```
 
-`dev/api.sh` calls the dashboard API and `dev/screenshot.mjs` takes screenshots. `CLAUDE.md` explains the
+`dev/api.sh` calls the dashboard API, `dev/screenshot.mjs` takes screenshots, and `dev/preview.mjs` shows
+your dashboard changes with a phone's real data without installing them. `CLAUDE.md` explains the
 caveats of testing over adb and the Android quirks we've already worked around. Read it before changing
 anything Android-specific.
 
