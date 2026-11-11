@@ -138,6 +138,8 @@ main > * { animation: enter .28s var(--ease) both; }
 .card h4 { margin: 20px 0 8px; font-size: 13px; font-weight: 600; }
 .grid { display: grid; gap: 12px; }
 .grid > .card + .card { margin-top: 0; }
+.stack { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.stack > .card + .card { margin-top: 0; }
 .tiles { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .two { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; align-items: start; }
 
@@ -497,3 +499,5 @@ table.data tbody tr:last-child td { border-bottom: 0; }
 }
 .btn.primary.loading::after { border-color: var(--primary-text); border-right-color: transparent; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; }

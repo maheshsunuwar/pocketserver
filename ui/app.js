@@ -424,13 +424,14 @@ function catalogTile(r) {
     h('div', { class: 'top' }, monogram(r.name), h('div', null, h('div', { class: 'name' }, r.name), h('div', { class: 'cat' }, r.category))),
     h('p', null, r.description),
     h('div', { class: 'tags' },
-      r.kind === 'docker' ? h('span', { class: 'badge warn' }, 'Docker · experimental') : h('span', { class: 'badge ok' }, 'Native'),
+      r.unavailable ? h('span', { class: 'badge' }, 'Not supported on this phone')
+        : r.kind === 'docker' ? h('span', { class: 'badge warn' }, 'Docker · experimental') : h('span', { class: 'badge ok' }, 'Native'),
       r.needsDb ? h('span', { class: 'badge' }, `+ ${r.needsDb === 'postgres' ? 'PostgreSQL' : r.needsDb}`) : null));
 }
 
 function installDialog(r) {
   const name = h('input', { type: 'text', value: r.name, maxlength: 60 });
-  const btn = h('button', { class: 'btn primary', type: 'submit' }, `Install ${r.name}`);
+  const btn = h('button', { class: 'btn primary', type: 'submit', disabled: !!r.unavailable }, `Install ${r.name}`);
   const close = openModal(h('form', {
     onsubmit: busy(btn, async () => {
       const a = await api('POST', `/catalog/${r.id}/install`, { name: name.value });
@@ -441,7 +442,8 @@ function installDialog(r) {
   },
   h('div', { class: 'page-head', style: 'margin-bottom:14px' }, h('div', { class: 'title' }, monogram(r.name, { large: true }), h('div', null, h('h3', { style: 'margin:0;font-size:17px' }, r.name), h('div', { class: 'faint', style: 'font-size:12.5px' }, r.category)))),
   h('p', { class: 'muted' }, r.description, ' ', r.website ? h('a', { href: r.website, target: '_blank', rel: 'noopener' }, 'Website') : null),
-  r.kind === 'docker' ? h('div', { class: 'banner', style: 'margin:0 0 14px' }, `Runs the ${r.image} Docker image through udocker. This is experimental: the first install downloads the image and can take several minutes, and it uses more memory than native apps.`) : null,
+  r.unavailable ? h('div', { class: 'banner bad', style: 'margin:0 0 14px' }, r.unavailable) : null,
+  !r.unavailable && r.kind === 'docker' ? h('div', { class: 'banner', style: 'margin:0 0 14px' }, `Runs the ${r.image} Docker image through udocker. This is experimental: the first install downloads the image and can take several minutes, and it uses more memory than native apps.`) : null,
   r.needsDb ? h('p', { class: 'muted' }, 'A PostgreSQL database will be created for it.') : null,
   r.claim ? h('div', { class: 'banner', style: 'margin:0 0 14px' }, CLAIM_TEXT) : null,
   r.notes ? h('p', { class: 'faint' }, r.notes) : null,
@@ -678,19 +680,61 @@ function deployInfo(a) {
     h('span', { class: 'faint' }, `${ago(d.at)} · took ${d.seconds}s · ${d.reason}`));
 }
 
+const DB_VARS = {
+  postgres: 'DATABASE_URL, POSTGRES_URL, PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE',
+  mariadb: 'DATABASE_URL, MYSQL_URL, MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE',
+  redis: 'REDIS_URL, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD',
+};
+
 function appEnvTab(a) {
-  const ta = h('textarea', { spellcheck: 'false', style: 'min-height:260px' });
+  const ta = h('textarea', { spellcheck: 'false', style: 'min-height:180px' });
   ta.value = Object.entries(a.env).map(([k, val]) => `${k}=${val}`).join('\n');
   const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Save and restart');
   return h('div', { class: 'grid two' },
-    h('form', { class: 'card', onsubmit: busy(btn, async () => { await api('PATCH', '/apps/' + a.id, { env: ta.value }); toast('Saved. Restarting the app…', 'ok'); }) },
-      field('Environment variables', ta, 'One KEY=value per line. Lines starting with # are ignored.'), btn),
-    h('div', { class: 'card' }, h('h3', null, 'Set for you'),
-      h('dl', { class: 'kv' },
-        h('dt', null, 'PORT'), h('dd', null, h('code', null, a.port), ' — listen on this'),
-        h('dt', null, 'HOST'), h('dd', null, h('code', null, '0.0.0.0')),
-        h('dt', null, 'NODE_ENV'), h('dd', null, h('code', null, 'production'), ' (while running)')),
-      h('p', { class: 'faint', style: 'margin-top:12px' }, 'Variables you set here override these.')));
+    h('div', { class: 'stack' },
+      appDatabasesCard(a),
+      h('form', { class: 'card', onsubmit: busy(btn, async () => { await api('PATCH', '/apps/' + a.id, { env: ta.value }); toast('Saved. Restarting the app…', 'ok'); }) },
+        field('Environment variables', ta, 'One KEY=value per line. Lines starting with # are ignored.'), btn)),
+    h('div', { class: 'stack' },
+      h('div', { class: 'card' }, h('h3', null, 'Set for you'),
+        h('dl', { class: 'kv' },
+          h('dt', null, 'PORT'), h('dd', null, h('code', null, a.port), ' — listen on this'),
+          h('dt', null, 'HOST'), h('dd', null, h('code', null, '0.0.0.0')),
+          h('dt', null, 'NODE_ENV'), h('dd', null, h('code', null, 'production'), ' (while running)'),
+          ...(Object.keys(a.linkedEnv || {}).length ? [h('dt', null, 'Databases'), h('dd', null, `${Object.keys(a.linkedEnv).length} variables from the connected databases`)] : [])),
+        h('p', { class: 'faint', style: 'margin-top:12px' }, 'Variables you set here override these.'))));
+}
+
+function appDatabasesCard(a) {
+  const card = h('form', { class: 'card' }, h('h3', null, 'Databases'), h('p', { class: 'faint' }, 'Loading…'));
+  api('GET', '/databases').then((dbs) => {
+    if (!dbs.length) {
+      fill(card, h('h3', null, 'Databases'),
+        h('p', null, 'Need a database? Create one, then connect it here. PocketServer passes its address to the app as ', h('code', null, 'DATABASE_URL'), '.'),
+        h('a', { class: 'btn small', href: '#/databases/new' }, icon('plus'), 'New database'));
+      return;
+    }
+    const linked = new Set(a.databases || []);
+    const boxes = dbs.map((d) => {
+      const box = h('input', { type: 'checkbox', checked: linked.has(d.id), value: d.id });
+      return { box, el: h('div', null,
+        h('label', { class: 'check', style: linked.has(d.id) ? 'margin-bottom:8px' : '' }, box,
+          h('span', null, d.name, h('span', { class: 'faint' }, ` · ${d.typeLabel}`), h('small', null, DB_VARS[d.type]))),
+        linked.has(d.id) ? h('div', { style: 'margin:0 0 16px 26px' }, copyField(d.urls.local, { secret: true })) : null) };
+    });
+    const save = h('button', { class: 'btn', type: 'submit' }, 'Save and restart');
+    card.onsubmit = busy(save, async () => {
+      await api('PATCH', '/apps/' + a.id, { databases: boxes.filter((x) => x.box.checked).map((x) => x.box.value) });
+      toast('Saved. Restarting the app…', 'ok');
+      router();
+    });
+    const overridden = Object.keys(a.linkedEnv || {}).filter((k) => k in (a.env || {}));
+    fill(card, h('h3', null, 'Databases'),
+      h('p', { class: 'faint', style: 'margin-top:0' }, 'Connect a database and the app gets its address in these variables. If you connect two SQL databases, DATABASE_URL points to the first.'),
+      overridden.length ? h('div', { class: 'banner' }, `Your own ${overridden.join(', ')} below ${overridden.length > 1 ? 'override' : 'overrides'} the connected database. Delete ${overridden.length > 1 ? 'them' : 'it'} from Environment variables to use the database.`) : null,
+      ...boxes.map((x) => x.el), save);
+  }).catch((e) => fill(card, h('h3', null, 'Databases'), h('p', { class: 'error-text' }, e.message)));
+  return card;
 }
 
 function appPublicTab(a, refresh) {
@@ -739,9 +783,18 @@ function appSettingsTab(a) {
   const repo = inp(a.repo);
   const branch = inp(a.branch, 'Default branch');
   const subdir = inp(a.subdir, 'Repo root');
-  const install = inp(c.install, 'Auto-detected');
-  const build = inp(c.build, 'Auto-detected');
-  const start = inp(c.start, a.source === 'git' ? 'Auto-detected' : '');
+  const det = a.detected || {};
+  const detectedHint = (k) => (det[k] ? `Auto: ${det[k]}` : a.detected ? 'None' : 'Auto-detected');
+  const install = inp(c.install, detectedHint('install'));
+  const build = inp(c.build, detectedHint('build'));
+  const start = inp(c.start, a.source === 'git' ? detectedHint('start') : '');
+  const boxes = [['install', install], ['build', build], ['start', start]];
+  for (const [k, el] of boxes) if (det[k]) el.title = det[k];
+  // Detected commands are often too long to read in the box. This copies them in to edit,
+  // for example to add a package to the install command.
+  const useDetected = Object.values(det).some(Boolean) && a.source === 'git'
+    ? h('button', { class: 'btn small ghost', type: 'button', onclick: () => { for (const [k, el] of boxes) if (!el.value && det[k]) el.value = det[k]; } }, 'Edit the detected commands')
+    : null;
   const port = inp(a.port, '', 'number');
   const dk = a.docker || {};
   const image = inp(dk.image, 'image:tag');
@@ -776,7 +829,7 @@ function appSettingsTab(a) {
     field('Volumes', volumes, 'Folders inside the container to keep, one per line.'),
     field('Command', dcmd)] : [
     h('div', { class: 'row' }, field('Install command', install), a.source === 'git' ? field('Build command', build) : null),
-    field('Start command', start)],
+    field('Start command', start, useDetected ? h('span', null, 'Leave a box empty to use the detected command. ', useDetected) : null)],
   field('Port', port, a.source === 'docker' ? 'The port on the phone.' : 'Your app reads this from the PORT environment variable.'),
   a.source === 'git' ? h('label', { class: 'check' }, auto, h('span', null, 'Redeploy automatically when I push', h('small', null, 'Checks for new commits every 2 minutes.'))) : null,
   btn);
@@ -1224,7 +1277,77 @@ async function Settings(v) {
 
   v.render(h('div', null,
     h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Settings'))),
-    h('div', { class: 'grid two' }, h('div', null, sshCard(), pwForm, cfForm), h('div', null, gitCard(), phone, about))));
+    h('div', { class: 'grid two' }, h('div', null, systemCard(), sshCard(), pwForm, cfForm), h('div', null, dockerCard(), gitCard(), phone, about))));
+}
+
+/** Waits for the dashboard to come back after a restart, then reloads the page. */
+async function waitForRestart() {
+  await new Promise((r) => setTimeout(r, 2500));
+  for (let i = 0; i < 60; i++) {
+    try { const r = await fetch('/api/me', { cache: 'no-store' }); if (r.ok || r.status === 401) { location.reload(); return; } } catch {}
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  toast("PocketServer hasn't come back yet. Check the phone.", 'error');
+}
+
+function systemCard() {
+  const box = h('div', null, h('p', { class: 'faint' }, 'Loading…'));
+  api('GET', '/system').then((sys) => {
+    const restart = h('button', { class: 'btn', type: 'button', disabled: !sys.canRestart }, icon('restart'), 'Restart PocketServer');
+    restart.addEventListener('click', busy(restart, async () => {
+      if (!confirm('Restart PocketServer? Your apps and databases restart too. The page reloads when it\'s back.')) return;
+      await api('POST', '/system/restart');
+      toast('Restarting…', 'ok');
+      await waitForRestart();
+    }));
+    const status = h('div', { class: 'faint', style: 'margin-top:10px' });
+    const check = h('button', { class: 'btn', type: 'button', disabled: !sys.canUpdate }, 'Check for updates');
+    check.addEventListener('click', busy(check, async () => {
+      const u = await api('GET', '/system/update');
+      if (!u.behind) { fill(status, `You're on the latest version (${sys.version}).`); return; }
+      const now = h('button', { class: 'btn small primary', type: 'button' }, 'Update and restart');
+      now.addEventListener('click', busy(now, async () => {
+        const r = await api('POST', '/system/update');
+        if (!r.changed) { fill(status, 'Already up to date.'); return; }
+        toast(`Updated to ${r.version}. Restarting…`, 'ok');
+        await waitForRestart();
+      }));
+      fill(status, h('p', { style: 'margin:0 0 8px' }, `${u.behind} new ${u.behind === 1 ? 'change' : 'changes'}. Latest: ${u.latest}`), now);
+    }));
+    fill(box,
+      h('div', { class: 'row-actions' }, restart, check),
+      status,
+      !sys.canRestart ? h('p', { class: 'faint' }, 'Restart works when PocketServer was started with the pocketserver command.') : null,
+      !sys.canUpdate ? h('p', { class: 'faint' }, 'This copy wasn\'t installed from GitHub, so it can\'t update itself.') : null);
+  }).catch((e) => fill(box, h('p', { class: 'error-text' }, e.message)));
+  return h('div', { class: 'card' }, h('h3', null, 'PocketServer'), box);
+}
+
+function dockerCard() {
+  const card = h('div', { class: 'card' });
+  const draw = (d) => {
+    if (!d.installed) { card.remove(); return; }
+    const leftovers = d.leftoverContainers + d.images.filter((i) => !i.used).length + d.strayJobs;
+    const clean = h('button', { class: 'btn', type: 'button', disabled: !leftovers }, 'Clean up');
+    clean.addEventListener('click', busy(clean, async () => {
+      if (!confirm('Delete leftover containers and Docker images no app uses, and stop stuck installs? Your Docker apps and their data are kept.')) return;
+      const r = await api('POST', '/system/docker/clean', { images: true });
+      toast(`Freed ${bytes(r.freedBytes)}.`, 'ok');
+      draw(await api('GET', '/system/docker'));
+    }));
+    fill(card, h('h3', null, 'Docker storage'),
+      d.works === false ? h('div', { class: 'banner bad' }, "This phone's kernel can't run Docker apps (proot hangs on it). Native apps and databases work. You can free the space below.") : null,
+      h('dl', { class: 'kv' },
+        h('dt', null, 'Space used'), h('dd', null, bytes(d.bytes)),
+        h('dt', null, 'Images'), h('dd', null, d.images.length ? d.images.map((i) => `${i.name}${i.used ? '' : ' (unused)'}`).join(', ') : 'None'),
+        h('dt', null, 'Containers'), h('dd', null, `${d.containers}${d.leftoverContainers ? `, ${d.leftoverContainers} left over from failed installs or deleted apps` : ''}`),
+        d.strayJobs ? h('dt', null, 'Stuck installs') : null, d.strayJobs ? h('dd', null, `${d.strayJobs} processes still running`) : null),
+      h('div', { style: 'margin-top:14px' }, clean),
+      h('p', { class: 'faint', style: 'margin:10px 0 0' }, 'Removes only what no app uses. Containers you created yourself are kept.'));
+  };
+  fill(card, h('h3', null, 'Docker storage'), h('p', { class: 'faint' }, 'Checking…'));
+  api('GET', '/system/docker').then(draw).catch((e) => fill(card, h('h3', null, 'Docker storage'), h('p', { class: 'error-text' }, e.message)));
+  return card;
 }
 
 function gitCard() {

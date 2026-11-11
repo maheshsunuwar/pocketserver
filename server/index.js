@@ -9,6 +9,7 @@ const auth = require('./auth');
 const S = require('./supervisor');
 const apps = require('./apps');
 const dbs = require('./databases');
+const system = require('./system');
 const dbdata = require('./dbdata');
 const sshd = require('./sshd');
 const gitkey = require('./gitkey');
@@ -147,6 +148,13 @@ route('POST', '/api/settings/password', async (req, res, p, body) => {
 });
 route('GET', '/api/settings/git-key', async () => ({ publicKey: await gitkey.publicKey() }));
 route('GET', '/api/settings/ssh', async () => ({ ...sshd.view(), ips: U.localIPs() }));
+// ---------- system: restart, update, Docker storage ----------
+route('GET', '/api/system', async () => system.info());
+route('POST', '/api/system/restart', async () => system.restart(shutdown));
+route('GET', '/api/system/update', async () => system.checkUpdate());
+route('POST', '/api/system/update', async () => system.update(shutdown));
+route('GET', '/api/system/docker', async () => system.docker());
+route('POST', '/api/system/docker/clean', async (req, res, p, body) => system.cleanDocker(body || {}));
 route('POST', '/api/settings/ssh', async (req, res, p, body) => ({ ...(await sshd.update(body)), ips: U.localIPs() }));
 route('POST', '/api/settings/cloudflare', async (req, res, p, body) => {
   const token = String(body.token || '').trim();

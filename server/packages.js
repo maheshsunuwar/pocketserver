@@ -1,6 +1,8 @@
 'use strict';
 // Installs missing runtimes on demand (Termux packages), so a Python or Go app "just works".
-const { which, run, isTermux } = require('./util');
+const fs = require('fs');
+const path = require('path');
+const { which, run, isTermux, PREFIX, paths } = require('./util');
 
 // command → Termux package that provides it
 const TERMUX_PKG = {
@@ -38,4 +40,33 @@ function once(key, fn) {
   return installing.get(key);
 }
 
-module.exports = { ensure };
+/**
+ * pnpm 11+ installs a launcher without a #! line that its native binary normally replaces. There's no
+ * native binary for Android, so it stays. Shells still run it, but programs that start pnpm themselves
+ * (turbo, nx) get "Exec format error". Returns a folder with proper launchers to put first on PATH.
+ */
+function shimDir() {
+  if (!isTermux) return null;
+  const dir = path.join(paths.home, 'bin');
+  const pkg = path.join(PREFIX, 'lib', 'node_modules', 'pnpm');
+  for (const name of ['pnpm', 'pnpx']) {
+    const target = path.join(pkg, 'bin', `${name}.mjs`);
+    if (!fs.existsSync(target)) continue;
+    let head = '';
+    try { head = fs.readFileSync(path.join(pkg, name), 'latin1').slice(0, 2); } catch {}
+    if (head === '#!' || head === '\x7fE') continue; // a real script or the native binary: fine as it is
+    fs.mkdirSync(dir, { recursive: true });
+    // Settings go in the launcher too: turbo hands its tasks only a few environment variables.
+    // They stop pnpm from switching to the native build a project's "packageManager" names.
+    const text = `#!${path.join(PREFIX, 'bin', 'sh')}\n`
+      + ': "${npm_config_manage_package_manager_versions:=false}" "${npm_config_pm_on_fail:=ignore}"\n'
+      + 'export npm_config_manage_package_manager_versions npm_config_pm_on_fail\n'
+      + `exec node ${JSON.stringify(target)} "$@"\n`;
+    const file = path.join(dir, name);
+    try { if (fs.readFileSync(file, 'utf8') === text) continue; } catch {}
+    fs.writeFileSync(file, text, { mode: 0o755 });
+  }
+  return dir;
+}
+
+module.exports = { ensure, shimDir };

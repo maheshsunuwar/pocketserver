@@ -48,7 +48,7 @@ cmd__watchdog() {
   trap 'touch "$PH_HOME/stopping"; [ -n "$child" ] && kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 0' TERM INT
   local code busy=0
   while true; do
-    node "$ROOT/server/index.js" &
+    POCKETSERVER_WATCHDOG=1 node "$ROOT/server/index.js" &
     child=$!
     code=0; wait "$child" || code=$?
     [ -f "$PH_HOME/stopping" ] && break

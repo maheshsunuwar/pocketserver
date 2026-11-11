@@ -40,7 +40,7 @@ major="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$major" -ge 18 ] || die "Node.js $(node -v) is too old. PocketServer needs Node 18 or newer."
 ok "Node.js $(node -v)"
 
-if [ -e "$HOME/.pockethost" ] || [ -x "$HOME/pockethost/bin/pockethost" ]; then
+if { [ -d "$HOME/.pockethost" ] && [ ! -L "$HOME/.pockethost" ]; } || [ -x "$HOME/pockethost/bin/pockethost" ]; then
   # Earlier versions were called PocketHost. Move the data over and keep a link at the old path,
   # because apps' config files can contain absolute paths into it.
   step "Moving your data from PocketHost (the old name)"

@@ -184,6 +184,7 @@ async function remove(id) {
   S.dropLogs(id);
   fs.rmSync(dbDir(id), { recursive: true, force: true });
   delete state.databases[id];
+  for (const a of Object.values(state.apps)) if (a.databases) a.databases = a.databases.filter((x) => x !== id);
   save();
 }
 

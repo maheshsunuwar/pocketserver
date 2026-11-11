@@ -146,7 +146,29 @@ function getprop(name) {
   try { return execFileSync('getprop', [name], { encoding: 'utf8', timeout: 2000 }).trim(); } catch { return ''; }
 }
 
+/**
+ * termux-exec can start programs through Android's linker (/system/bin/linker64), which is required on
+ * Termux builds for newer Android targets. The linker can't run static binaries such as turbo's
+ * ("unexpected e_type: 2") and makes process.execPath wrong. Where Android allows running programs
+ * directly, apps are started that way. Tested once, through the shell, the way apps run.
+ */
+let directExec;
+function canExecDirectly() {
+  if (directExec === undefined) {
+    directExec = false;
+    if (isTermux) {
+      try {
+        execFileSync(SHELL, ['-c', `"${path.join(PREFIX, 'bin', 'true')}"`], {
+          env: { ...process.env, TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE: 'disable' }, timeout: 5000, stdio: 'ignore',
+        });
+        directExec = true;
+      } catch {}
+    }
+  }
+  return directExec;
+}
+
 module.exports = {
   paths, isTermux, SHELL, PREFIX, sleep, id, secret, slug, HttpError, bad,
-  lines, run, sh, which, portFree, portOpen, waitPort, localIPs, getprop, PRIVATE_NETS,
+  lines, run, sh, which, portFree, portOpen, waitPort, localIPs, getprop, PRIVATE_NETS, canExecDirectly,
 };

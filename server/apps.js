@@ -13,6 +13,7 @@ const tunnels = require('./tunnels');
 const gitkey = require('./gitkey');
 
 const STATIC_SERVER = path.join(__dirname, 'static-serve.js');
+const ANDROID_NODE = path.join(__dirname, 'android-node.js');
 const POLL_MS = 2 * 60 * 1000;
 const appDir = (id) => path.join(U.paths.apps, id);
 const srcDir = (id) => path.join(appDir(id), 'src');
@@ -124,8 +125,42 @@ function applyInput(a, input, isNew) {
     if (JSON.stringify(env) !== JSON.stringify(a.env || {})) changed.run = true;
     a.env = env;
   }
+  if (input.databases !== undefined) {
+    if (!Array.isArray(input.databases)) throw U.bad('databases must be a list of database ids.');
+    const ids = [...new Set(input.databases.map(String))];
+    for (const dbId of ids) if (!state.databases[dbId]) throw U.bad('One of those databases no longer exists. Reload the page.');
+    if (JSON.stringify(ids) !== JSON.stringify(a.databases || [])) changed.run = true;
+    a.databases = ids;
+  }
   if (input.autoDeploy !== undefined) a.autoDeploy = !!input.autoDeploy;
   return changed;
+}
+
+/**
+ * Connection settings for the databases connected to an app, under the names most frameworks read.
+ * Built at each start, so a database's new port or password reaches the app on restart.
+ */
+function linkedEnv(a) {
+  const env = {};
+  const set = (k, v) => { if (!(k in env)) env[k] = String(v); };
+  for (const dbId of a.databases || []) {
+    const d = state.databases[dbId];
+    if (!d) continue;
+    const url = require('./databases').TYPES[d.type].url(d, '127.0.0.1');
+    if (d.type === 'postgres') {
+      set('DATABASE_URL', url);
+      set('POSTGRES_URL', url);
+      Object.entries({ PGHOST: '127.0.0.1', PGPORT: d.port, PGUSER: 'postgres', PGPASSWORD: d.password, PGDATABASE: d.dbName }).forEach(([k, v]) => set(k, v));
+    } else if (d.type === 'mariadb') {
+      set('DATABASE_URL', url);
+      set('MYSQL_URL', url);
+      Object.entries({ MYSQL_HOST: '127.0.0.1', MYSQL_PORT: d.port, MYSQL_USER: 'app', MYSQL_PASSWORD: d.password, MYSQL_DATABASE: d.dbName }).forEach(([k, v]) => set(k, v));
+    } else if (d.type === 'redis') {
+      set('REDIS_URL', url);
+      Object.entries({ REDIS_HOST: '127.0.0.1', REDIS_PORT: d.port, REDIS_PASSWORD: d.password }).forEach(([k, v]) => set(k, v));
+    }
+  }
+  return env;
 }
 
 function view(a) {
@@ -140,6 +175,7 @@ function view(a) {
     tunnel: S.info('tunnel-' + a.id).status,
     docker: a.docker || null, credentials: a.credentials || null, catalog: a.catalog || null,
     dependsOn: a.dependsOn || [], dataDir: dataDir(a.id),
+    databases: (a.databases || []).filter((dbId) => state.databases[dbId]), linkedEnv: linkedEnv(a), detected: a.detected || null,
   };
 }
 
@@ -168,7 +204,7 @@ async function finishStart(a, t0, reason, sha, commit, log) {
 
 /** Apps installed with a database wait until it's ready (it may still be installing). */
 async function waitForDatabases(a, log) {
-  for (const dbId of a.dependsOn || []) {
+  for (const dbId of new Set([...(a.dependsOn || []), ...(a.databases || [])])) {
     const d = state.databases[dbId];
     if (!d) continue;
     const ready = () => d.initialized && S.info(dbId).status === 'running';
@@ -185,9 +221,42 @@ async function waitForDatabases(a, log) {
 
 const PLATFORM = { arm64: 'linux/arm64', arm: 'linux/arm/v7', x64: 'linux/amd64' }[process.arch] || 'linux/arm64';
 
+/**
+ * Docker apps run through proot, which some phone kernels break: any container that starts a second
+ * process hangs forever (termux/proot#417, kernels missing the upstream ptrace_stop freezer fix, seen on
+ * LineageOS 24 with 4.14 kernels). Checked once, in a few seconds, so a deploy fails with a clear
+ * reason instead of hanging.
+ */
+let prootWorks;
+async function checkProot() {
+  if (prootWorks === undefined) {
+    prootWorks = await U.run('timeout', ['-s', 'KILL', '10', 'proot', 'sh', '-c', 'echo ok | cat'], { timeout: 15000, label: 'proot check' })
+      .then((out) => /ok/.test(out), () => false);
+  }
+  if (!prootWorks) {
+    throw new Error("Docker apps can't run on this phone: its kernel has a bug that makes proot (which runs the containers) hang. "
+      + 'Phones with a stock kernel (Samsung, Pixel...) are fine. Native apps and databases are not affected. '
+      + 'Details: https://github.com/termux/proot/issues/417');
+  }
+}
+
+/** udocker names a container only when create finishes. Remove the unnamed ones a failed create left. */
+async function removeUnnamedContainers(img) {
+  const out = await U.run('udocker', ['ps'], { label: 'udocker ps', timeout: 30000 }).catch(() => '');
+  for (const line of out.split('\n')) {
+    const m = /^([0-9a-f-]{36})\s+\S+\s+\S+\s+(\S+)\s*$/.exec(line.trim()); // id, P, M, image (no name)
+    if (m && m[2] === img) await U.run('udocker', ['rm', m[1]], { label: 'udocker rm', timeout: 60000 }).catch(() => {});
+  }
+}
+
+/** true / false once checked, null before. Checked in the background at startup where proot exists. */
+const dockerWorks = () => (prootWorks === undefined ? null : prootWorks);
+if (U.isTermux && U.which('proot')) setTimeout(() => checkProot().catch(() => {}), 5000).unref();
+
 async function deployDocker(a, log) {
   const img = a.docker.image;
   await pkgs.ensure(['udocker', 'proot'], (l) => log(l, 'out'));
+  await checkProot();
   log(`Pulling ${img} (${PLATFORM})…`);
   await U.run('udocker', ['pull', `--platform=${PLATFORM}`, img], { onLine: (l) => log(l, 'out'), label: 'udocker pull', timeout: 60 * 60e3 })
     .catch((e) => {
@@ -199,7 +268,55 @@ async function deployDocker(a, log) {
   // Recreate the container on every deploy (like docker compose up): your data lives in volumes.
   await U.run('udocker', ['rm', containerName(a.id)], { label: 'udocker rm' }).catch(() => {});
   log('Creating the container…');
-  await U.run('udocker', ['create', `--name=${containerName(a.id)}`, img], { onLine: (l) => log(l, 'out'), label: 'udocker create', timeout: 30 * 60e3 });
+  await U.run('udocker', ['create', `--name=${containerName(a.id)}`, img], { onLine: (l) => log(l, 'out'), label: 'udocker create', timeout: 30 * 60e3 })
+    .catch(async (e) => { await removeUnnamedContainers(img); throw e; });
+}
+
+/**
+ * Rust-based npm packages (napi-rs) often have no Android build, but ship a WebAssembly one that npm
+ * skips because it's marked for another CPU. Finds which one a failed step was missing.
+ */
+function missingWasiPackage(output, cwd) {
+  const m = /Cannot find module '((?:@[\w.-]+\/)?[\w.-]+)-android-arm(?:64|-eabi)'[\s\S]*?Require stack:\s*\n.*?- (\S+)/.exec(output);
+  if (!m) return null;
+  const want = `${m[1]}-wasm32-wasi`;
+  let dir = path.dirname(m[2].trim());
+  for (let i = 0; i < 4 && dir.startsWith(cwd); i++, dir = path.dirname(dir)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+      const version = (pkg.optionalDependencies || {})[want];
+      // The node_modules folder holding the package that needs it: Node looks there first.
+      let into = path.dirname(dir);
+      if (path.basename(into).startsWith('@')) into = path.dirname(into);
+      if (version && path.basename(into) === 'node_modules') return { spec: `${want}@${version}`, into };
+    } catch {}
+  }
+  return null;
+}
+
+/**
+ * Installs a WebAssembly package next to the package that needs it. Installed into a separate folder
+ * with npm and copied over, so it works the same in npm, pnpm and yarn projects.
+ */
+async function installWasi({ spec, into }, cwd, env, log) {
+  const tmp = path.join(cwd, '.pocketserver-wasi');
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp, { recursive: true });
+  try {
+    await U.run('npm', ['install', '--no-save', '--no-package-lock', '--force', '--no-audit', '--no-fund', spec],
+      { cwd: tmp, env, onLine: (l) => log(l, 'out'), label: `npm install ${spec}`, timeout: 15 * 60e3 });
+    const copy = (from, to) => {
+      for (const name of fs.readdirSync(from)) {
+        if (name.startsWith('.')) continue;
+        const f = path.join(from, name);
+        const t = path.join(to, name);
+        if (name.startsWith('@')) { fs.mkdirSync(t, { recursive: true }); copy(f, t); } else if (!fs.existsSync(t)) fs.cpSync(f, t, { recursive: true });
+      }
+    };
+    copy(path.join(tmp, 'node_modules'), into);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 async function runStep(cmd, label, cwd, env, log) {
@@ -208,7 +325,15 @@ async function runStep(cmd, label, cwd, env, log) {
     try {
       return await U.sh(cmd, { cwd, env, onLine: (l) => log(l, 'out'), label, timeout: 60 * 60e3 });
     } catch (e) {
-      const tc = U.isTermux && TOOLCHAINS.find((t) => !tried.has(t.bin) && t.re.test(e.output || ''));
+      const out = e.output || '';
+      const wasi = U.isTermux && missingWasiPackage(out, cwd);
+      if (wasi && !tried.has(wasi.spec)) {
+        tried.add(wasi.spec);
+        log(`${wasi.spec.replace(/-wasm32-wasi@.*/, '')} has no Android build. Installing its WebAssembly version and trying again…`, 'sys');
+        await installWasi(wasi, cwd, env, log);
+        continue;
+      }
+      const tc = U.isTermux && TOOLCHAINS.find((t) => !tried.has(t.bin) && t.re.test(out));
       if (!tc) throw e;
       tried.add(tc.bin);
       log(`This app needs ${tc.name} to build some of its packages. Installing it (one time, can take a few minutes)…`, 'sys');
@@ -227,12 +352,19 @@ function envFor(a, cwd, plan, runtime) {
   env.APP_URL = lanUrl(a.port);
   // Python packages built with Rust (maturin) refuse to build on Android without this.
   if (U.isTermux && !env.ANDROID_API_LEVEL) env.ANDROID_API_LEVEL = U.getprop('ro.build.version.sdk') || '24';
+  // Start programs directly instead of through Android's linker where allowed (see util.canExecDirectly).
+  if (U.isTermux && U.canExecDirectly()) env.TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE ??= 'disable';
+  const shims = pkgs.shimDir(); // a pnpm launcher that works on Android (see packages.js)
+  if (shims) env.PATH = `${shims}:${env.PATH}`;
+  // Lets older Rust-based Python packages build for a Python newer than they know about.
+  if (U.isTermux && !env.PYO3_USE_ABI3_FORWARD_COMPATIBILITY) env.PYO3_USE_ABI3_FORWARD_COMPATIBILITY = '1';
+  if (U.isTermux) env.NODE_OPTIONS = `--require ${JSON.stringify(ANDROID_NODE)} ${env.NODE_OPTIONS || ''}`.trim();
   if (runtime) env.NODE_ENV = 'production'; // not during install: npm would skip devDependencies needed to build
   if (plan && plan.pathPrefix) {
     env.PATH = path.join(cwd, plan.pathPrefix) + ':' + env.PATH;
     env.VIRTUAL_ENV = path.join(cwd, '.venv');
   }
-  return Object.assign(env, a.env || {});
+  return Object.assign(env, linkedEnv(a), a.env || {});
 }
 
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -245,7 +377,7 @@ function dockerCmd(a) {
   const args = ['exec', 'udocker', '--quiet', 'run', '--nobanner'];
   if (cport !== a.port) args.push(`--publish=${a.port}:${cport}`);
   args.push(`--env=${shq(`PORT=${cport}`)}`);
-  for (const [k, v] of Object.entries(a.env || {})) args.push(`--env=${shq(`${k}=${fill(v)}`)}`);
+  for (const [k, v] of Object.entries({ ...linkedEnv(a), ...(a.env || {}) })) args.push(`--env=${shq(`${k}=${fill(v)}`)}`);
   for (const v of d.volumes || []) args.push(`--volume=${shq(`${path.join(dataDir(a.id), 'volumes', v.replace(/^\/+/, '').replace(/\//g, '_'))}:${v}`)}`);
   args.push(containerName(a.id));
   if (d.command) args.push(fill(d.command)); // split by the shell, like docker run's CMD
@@ -260,7 +392,10 @@ function startProc(a) {
     return true;
   }
   // A plain-command app can have its start command edited without a redeploy.
-  const cmd = a.source === 'command' ? a.commands.start : a.plan.start;
+  let cmd = a.source === 'command' ? a.commands.start : a.plan.start;
+  // Static sites store the path of PocketServer's file server. Keep it current if PocketServer moved
+  // (for example ~/pockethost → ~/pocketserver).
+  cmd = cmd.replace(/"[^"]*\/server\/static-serve\.js"/, JSON.stringify(STATIC_SERVER));
   S.start(a.id, { cmd, cwd: a.plan.cwd, env: envFor(a, a.plan.cwd, a.plan, true) });
   return true;
 }
@@ -372,6 +507,8 @@ async function deploy(id, reason = 'manual') {
     const plan = { ...auto, install: c.install || auto.install || null, build: c.build || auto.build || null, start: c.start || auto.start || null };
     if (c.start) { delete plan.staticDir; delete plan.error; }
     if (a.source === 'git') log(`Detected app type: ${auto.type}`);
+    // Shown in Settings, so people can start from the detected command when they need to change it.
+    a.detected = a.source === 'git' ? { install: auto.install || '', build: auto.build || '', start: auto.staticDir ? '' : auto.start || '' } : null;
     if (plan.error && !plan.start && !plan.staticDir) throw new Error(plan.error);
 
     await pkgs.ensure(plan.needs || [], (l) => log(l, 'out'));
@@ -522,4 +659,4 @@ const list = () => Object.values(state.apps).sort((x, y) => x.createdAt - y.crea
 const one = (id) => view(get(id));
 const isDeploying = (id) => deploying.has(id);
 
-module.exports = { list, one, create, update, deploy, start, stop, restart, remove, setPublic, webhook, restore, isDeploying, dataDir, _test: { dockerCmd } };
+module.exports = { dockerWorks, list, one, create, update, deploy, start, stop, restart, remove, setPublic, webhook, restore, isDeploying, dataDir, _test: { dockerCmd, missingWasiPackage } };

@@ -17,7 +17,7 @@ That old phone in your drawer has an 8-core CPU, gigabytes of RAM, a battery bac
 - **Auto-detects** Node.js, Python (Django, Flask, FastAPI), Go, Rust, PHP, static sites, frontend builds (Vite, React, Angular…) and `Procfile`s. Missing runtimes are installed for you.
 - **Auto-deploy on push.** Checks your repo for new commits every 2 minutes, so it works behind any home router. Webhooks for GitHub, GitLab and Gitea are supported too.
 - **Keeps apps running.** Restarts on crash with backoff, brings everything back after a reboot, and shows live logs in the browser.
-- **One-click databases:** PostgreSQL, MariaDB (MySQL) and Redis, with generated passwords and ready-made connection URLs.
+- **One-click databases:** PostgreSQL, MariaDB (MySQL) and Redis, with generated passwords. Connect one to an app and it gets `DATABASE_URL` (or `REDIS_URL`) automatically.
 - **Browse and edit your data** in the dashboard: tables, rows and an SQL console for PostgreSQL and MariaDB; keys, hashes, lists and a command box for Redis.
 - **Private repos:** the phone gets its own SSH key. Add it to a repo as a read-only deploy key and deploy with the `git@…` address.
 - **Edit from VS Code:** turn on the built-in SSH server (key logins only) and open the phone's files with the SSH FS extension, or use any terminal.
@@ -64,7 +64,7 @@ Tried it on another phone? [Open an issue](https://github.com/maheshsunuwar/pock
 | Environment variables | App → **Environment** |
 | Share on the internet | App → **Public URL** → *Get a free public URL* |
 | Your own domain | Settings → **Your own domains** (Cloudflare Tunnel token) |
-| Database | Dashboard → **New database**, then copy the connection URL into your app's environment |
+| Database | Dashboard → **New database**, then in your app: **Environment → Databases**, tick it and save. The app gets `DATABASE_URL`, `REDIS_URL` and friends |
 | Monorepo | Set **Folder** when creating the app |
 | Custom commands | **Advanced** → install / build / start |
 
@@ -99,6 +99,7 @@ Coolify runs everything in Docker. On Android, Docker needs root plus a custom k
 | Public URLs | Your domain + Traefik | Free Cloudflare quick tunnels or your domain |
 
 **What works on a phone:** web apps, APIs, bots, small sites, home dashboards and databases for personal use.<br>
+**Docker apps** need a phone whose kernel runs proot correctly. Stock kernels (Samsung, Pixel…) are fine; some custom-ROM kernels aren't (the OnePlus 7T Pro on LineageOS isn't). PocketServer checks this and tells you.<br>
 **Not a good fit:** images that need a full init system (Home Assistant, many linuxserver.io images), heavy machine-learning workloads, or high-traffic production sites.
 
 ## Security

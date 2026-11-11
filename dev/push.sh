@@ -13,7 +13,7 @@ COPYFILE_DISABLE=1 tar -cf "$TAR" --exclude .git --exclude .dev-data --exclude n
 "${ADB[@]}" push "$TAR" /data/local/tmp/pocketserver.tar >/dev/null
 "${ADB[@]}" shell chmod 644 /data/local/tmp/pocketserver.tar
 if [ "${1:-}" = --install ] || [ "${2:-}" = --install ]; then
-  dev/phone.sh 'rm -rf ~/ph-src && mkdir ~/ph-src && tar -xf /data/local/tmp/pocketserver.tar -C ~/ph-src && POCKETSERVER_SRC=~/ph-src bash ~/ph-src/install.sh'
+  dev/phone.sh 'rm -rf ~/ph-src && mkdir ~/ph-src && tar -xf /data/local/tmp/pocketserver.tar -C ~/ph-src && POCKETSERVER_SRC="$HOME/ph-src" bash "$HOME/ph-src/install.sh"'
 else
   dev/phone.sh 'tar -xf /data/local/tmp/pocketserver.tar -C ~/pocketserver && pocketserver restart'
 fi

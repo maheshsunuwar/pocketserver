@@ -215,6 +215,8 @@ function publicView(r) {
   return {
     id: r.id, name: r.name, icon: r.icon, category: r.category, description: r.description, website: r.website,
     kind: r.kind, needsDb: r.db ? r.db.type : null, notes: r.notes || null, image: r.image || null, claim: !!r.claim,
+    unavailable: r.kind === 'docker' && apps.dockerWorks() === false
+      ? "This phone's kernel can't run Docker apps (proot hangs on it). Native apps work." : null,
   };
 }
 const list = () => RECIPES.map(publicView);

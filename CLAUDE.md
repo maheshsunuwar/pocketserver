@@ -75,8 +75,14 @@ To test those, run `pocketserver restart` in the Termux app on the phone itself.
   `pkg upgrade` (with `--force-confold`), not just `pkg update`.
 - **`process.execPath` can be `/apex/.../linker64`.** termux-exec may start programs through Android's loader,
   so programs that re-run themselves break. The real path is in `TERMUX_EXEC__PROC_SELF_EXE`.
+  - Node apps: every app gets `NODE_OPTIONS=--require server/android-node.js`, which fixes `process.execPath`.
+    Without it, builds using npm-run-all or concurrently fail with "bad ELF magic".
+  - The same file wraps `node:wasi`: Rust npm packages (napi-rs) with no Android build fall back to
+    WebAssembly, whose loader opens `/`, and Android denies that (`UVWASI_EACCES`). It's given Termux's
+    folder instead. `runStep` installs the missing `<pkg>-wasm32-wasi` package (npm skips it as the
+    wrong CPU) and retries. That's how AdminLTE's Astro build works.
   - Syncthing: fixed with `STMONITORED=1`.
-  - code-server: fixed with a `--require` shim. See both recipes in `server/catalog.js`.
+  - code-server: has its own copy of the shim (see `server/catalog.js`).
 - **Apps can't read `ro.lineage.*` and similar ROM properties.** `stats.js` gets the ROM name from
   `ro.build.flavor`.
 - **Termux:API can fail for a while and then work again.** Battery readings retry with backoff instead of giving up.
@@ -95,6 +101,17 @@ To test those, run `pocketserver restart` in the Termux app on the phone itself.
   multi-container or s6-based images won't work. Prefer native Termux packages (`pkg search <name>`).
 - **The Android loader rejects some prebuilt Linux binaries** (glibc). Use the Termux package, or a
   Docker image through udocker.
+- **Python lock files (`poetry.lock`, `uv.lock`) are only partly followed.** Termux's Python is the newest,
+  and old pinned compiled packages (pydantic-core, jiter…) don't build for it. `server/pydeps.py --lock`
+  pins only the project's direct, pure-Python dependencies; their own ranges keep the rest compatible.
+  Pinning everything made pip pick old pydantic-core versions that fail to build.
+- **Docker apps (udocker → proot) hang on some ROM kernels.** Any container process that forks with a pipe
+  loops on `clone()` forever (termux/proot#417: kernel missing the upstream "leave frozen state in
+  ptrace_stop" fix; seen on LineageOS 24, 4.14 kernels, including the OnePlus 7T Pro). Nothing in proot
+  fixes it. `apps.js` checks `proot sh -c 'echo ok | cat'` once and refuses Docker deploys with a clear
+  message; the catalog marks Docker apps unavailable. Stock kernels (Samsung, Pixel) aren't affected.
+- **`adb shell` expands `~` after `=`.** In `dev/phone.sh` commands, write `VAR="$HOME/x"`, not `VAR=~/x`,
+  or Android's shell turns it into `/x` before Termux sees it.
 
 ## Adding a catalog app
 
